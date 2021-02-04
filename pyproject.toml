@@ -1,0 +1,48 @@
+[tool.poetry]
+name = "xiao-asgi"
+version = "0.1.0"
+description = "A small ASGI framework."
+authors = ["Jonathan Staniforth <jonathanstaniforth@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/limber-project/limberframework"
+keywords = ["python", "asgi"]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+
+[tool.poetry.dev-dependencies]
+pytest = "^4.6"
+sphinx = "^3.4.3"
+pre-commit = "^2.10.0"
+coverage = "^5.4"
+sphinxcontrib-napoleon = "^0.7"
+
+[tool.black]
+line-length = 79
+target-version = ['py38']
+include = '\.pyi?$'
+exclude = '''
+(
+  /(
+      \.eggs
+    | \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+  )/
+)
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 79
+[build-system]
+requires = ["poetry>=0.12"]
+build-backend = "poetry.masonry.api"
+

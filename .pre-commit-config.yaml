@@ -1,0 +1,35 @@
+repos:
+- repo: https://github.com/PyCQA/isort
+  rev: 5.4.2
+  hooks:
+  - id: isort
+- repo: https://github.com/psf/black
+  rev: 20.8b1
+  hooks:
+  - id: black
+    exclude: ^docs/
+    language_version: python
+- repo: https://gitlab.com/pycqa/flake8
+  rev: 3.8.3
+  hooks:
+  - id: flake8
+    exclude: ^docs/
+- repo: https://github.com/pycqa/pydocstyle
+  rev: 5.1.1
+  hooks:
+  - id: pydocstyle
+    files: ^xiao_asgi/
+- repo: local
+  hooks:
+  - id: pytest
+    name: pytest
+    entry: coverage run --source xiao_asgi -m pytest
+    language: system
+    pass_filenames: false
+- repo: local
+  hooks:
+  - id: coverage
+    name: coverage
+    entry: coverage report --fail-under=100
+    language: system
+    pass_filenames: false
