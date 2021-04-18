@@ -1,6 +1,17 @@
 xiao\_asgi package
 ==================
 
+Submodules
+----------
+
+xiao\_asgi.requests module
+--------------------------
+
+.. automodule:: xiao_asgi.requests
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
