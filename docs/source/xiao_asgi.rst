@@ -12,6 +12,14 @@ xiao\_asgi.requests module
    :undoc-members:
    :show-inheritance:
 
+xiao\_asgi.responses module
+---------------------------
+
+.. automodule:: xiao_asgi.responses
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
