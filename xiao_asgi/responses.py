@@ -132,3 +132,11 @@ class Response:
             }
         )
         await send({"type": "http.response.body", "body": self.body})
+
+class HtmlResponse(Response):
+    """A HTTP response with a media type of text/html.
+
+    Attributes:
+        media_type (str, optional): the content-type of the body.
+    """
+    media_type: Optional[str] = "text/html"

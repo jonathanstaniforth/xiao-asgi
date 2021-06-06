@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, call
 
 from pytest import fixture, mark
 
-from xiao_asgi.responses import Response
+from xiao_asgi.responses import HtmlResponse, Response
 
 
 @fixture
@@ -135,3 +135,35 @@ class TestResponse:
                 call({"type": "http.response.body", "body": body.encode()}),
             ]
         )
+
+class TestHtmlResponse:
+    """Test the `xiao_asgi.responses.HtmlResponse` class."""
+    def test_create_with_defaults(self):
+        response = HtmlResponse()
+
+        assert response.body == b""
+        assert response.headers == [(b"content-type", b"text/html; charset=utf-8")]
+        assert response.media_type == "text/html"
+        assert response.status_code == 200
+
+    def test_create_without_defaults(self, headers):
+        body = '{"message": "Created"}'
+        status_code = 201
+
+        response = HtmlResponse(
+            body=body,
+            status_code=status_code,
+            headers=headers,
+        )
+
+        assert response.body == body.encode("utf-8")
+        assert response.headers == [
+            (b"server", b"TestServer"),
+            (b"cache-control", b"max-age=3600, public"),
+            (b"etag", b"pub1259380237;gz"),
+            (b"content-length", b"22"),
+            (b"content-type", b"text/html; charset=utf-8"),
+        ]
+        assert response.media_type == "text/html"
+        assert response.status_code == status_code
+
