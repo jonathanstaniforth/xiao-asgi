@@ -134,6 +134,7 @@ class Response:
         )
         await send({"type": "http.response.body", "body": self.body})
 
+
 class HtmlResponse(Response):
     """A HTTP response with a media type of text/html.
 
@@ -141,6 +142,7 @@ class HtmlResponse(Response):
         media_type (str, optional): the content-type of the body.
     """
     media_type: Optional[str] = "text/html"
+
 
 class JsonResponse(Response):
     """A HTTP response with a media type of application/json.
@@ -171,3 +173,12 @@ class JsonResponse(Response):
             separators=(",", ":"),
         ).encode(cls.charset)
 
+
+class PlainTextResponse(Response):
+    """A HTTP response with a media type of text/plain.
+
+    Attributes:
+        media_type (str, optional): the content-type of the body.
+    """
+
+    media_type: Optional[str] = "text/plain"
