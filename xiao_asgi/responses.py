@@ -1,6 +1,7 @@
 """A set of classes that can be used to send HTTP responses to the client."""
 from http.cookies import BaseCookie
-from typing import Coroutine, Optional, Union
+from json import dumps
+from typing import Any, Coroutine, Optional, Union
 
 
 class Response:
@@ -140,3 +141,33 @@ class HtmlResponse(Response):
         media_type (str, optional): the content-type of the body.
     """
     media_type: Optional[str] = "text/html"
+
+class JsonResponse(Response):
+    """A HTTP response with a media type of application/json.
+
+    Attributes:
+        media_type (str, optional): the content-type of the body.
+    """
+
+    media_type: Optional[str] = "application/json"
+
+    @classmethod
+    def _render_content(cls, content: Any) -> bytes:
+        """Convert content to a JSON formatted string and encode to bytes.
+
+        Args:
+            content (Any): the content to render.
+
+        Returns:
+            bytes: the rendered content in JSON form.
+        """
+        if isinstance(content, bytes):
+            return content
+        return dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+        ).encode(cls.charset)
+
