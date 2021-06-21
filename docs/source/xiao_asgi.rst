@@ -20,6 +20,22 @@ xiao\_asgi.responses module
    :undoc-members:
    :show-inheritance:
 
+xiao\_asgi.routing module
+-------------------------
+
+.. automodule:: xiao_asgi.routing
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+xiao\_asgi.utils module
+-----------------------
+
+.. automodule:: xiao_asgi.utils
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
