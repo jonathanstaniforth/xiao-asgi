@@ -4,6 +4,14 @@ xiao\_asgi package
 Submodules
 ----------
 
+xiao\_asgi.applications module
+------------------------------
+
+.. automodule:: xiao_asgi.applications
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 xiao\_asgi.requests module
 --------------------------
 
