@@ -1,10 +1,25 @@
 """Classes to handle routing requests to endpoints and sending responses."""
 from asyncio import to_thread
 from typing import Any, Callable, Coroutine
+from functools import partial
+from inspect import iscoroutinefunction
 
 from xiao_asgi.requests import Request
-from xiao_asgi.responses import PlainTextResponse, Response
-from xiao_asgi.utils import is_coroutine
+
+
+def is_coroutine(obj: Any) -> bool:
+    """Return whether the object is a coroutine function.
+
+    Args:
+        obj (Any): object to check.
+
+    Returns:
+        bool: ``True`` if the object is a coroutine function,
+            ``False`` otherwise.
+    """
+    while isinstance(obj, partial):
+        obj = obj.func
+    return iscoroutinefunction(obj)
 
 
 class Route:
