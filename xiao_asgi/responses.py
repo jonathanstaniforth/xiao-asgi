@@ -1,184 +1,118 @@
-"""A set of classes that can be used to send HTTP responses to the client."""
-from http.cookies import BaseCookie
-from json import dumps
-from typing import Any, Coroutine, Optional, Union
+"""A set of classes that can render responses to a client."""
+from abc import ABC, abstractmethod
+from typing import Any, Optional, Union, Generator
 
 
-class Response:
-    """A HTTP response representation that can be sent to the client.
+class Response(ABC):
+    """Base class for responses.
 
     Attributes:
-        charset (str): the character set of the body.
-        media_type (str, optional): the content-type of the body.
+        protocol (str): the protocol used to send the response.
     """
+    protocol: str
 
-    charset: str = "utf-8"
-    media_type: Optional[str] = None
+    @abstractmethod
+    def render_messages(self) -> Generator[dict[str, Any], None, None]:
+        """Yield rendered messages.
 
-    def __init__(
-        self,
-        body: Union[bytes, str] = b"",
-        status_code: int = 200,
-        headers: dict = {},
-    ) -> None:
-        """Establish the response information.
+        The response is converted to a series of dictionary messages.
 
-        The body and headers of the response will be rendered in preparation
-        for sending to the client.
-
-        Args:
-            body (Union[bytes, str], optional): content of the response.
-                Defaults to b"".
-            status_code (int, optional): status code of the response.
-                Defaults to 200.
-            headers (dict, optional): headers of the response. Defaults to {}.
+        Yields:
+            Generator[dict[str, Any], None, None]: a dictionary message.
         """
-        self.body = self._render_content(body)
-        self.headers = self._render_headers(
-            headers, len(self.body), self.media_type
-        )
-        self.status_code = status_code
+        pass
 
-    def add_cookie(self, cookie: BaseCookie) -> None:
-        """Add a cookie to the response.
 
-        Args:
-            cookie (BaseCookie): a `BaseCookie` object to encode for a
-                set-cookie header.
+class Http(Response):
+    """Base class for HTTP responses.
+
+    Args:
+        body (Union[bytes, Generator[bytes, None, None]], optional): the body content of the response.
+        headers (list[bytes, bytes], optional): the headers of the response.
+        status (int, optional): a HTTP status code. Defaults to 200.
+
+    Attributes:
+        body (Union[bytes, Generator[bytes, None, None]]): the body content of the response.
+        headers (list[bytes, bytes]): the headers of the response.
+        protocol (str): the protocol used to send the response. Defaults to http.
+        status (int): a HTTP status code.
+    """
+    protocol: str = "http"
+
+    def __init__(self, status: Optional[int] = 200, headers: Optional[list[bytes, bytes]] = [], body: Optional[Union[bytes, Generator[bytes, None, None]]] = b"") -> None:
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+class BodyResponse(Http):
+    """A body HTTP response.
+
+    Produces two messages: 
+    * first is to start the response 
+    * second is to send the body content.
+    """
+    def render_messages(self) -> Generator[dict[str, Any], None, None]:
+        """Yield rendered messages.
+
+        The response is converted to a series of dictionary messages.
+
+        Yields:
+            Generator[dict[str, Any], None, None]: a dictionary message.
         """
-        cookie_value = cookie.output(header="").strip()
-        self.headers.append(self._render_header("set-cookie", cookie_value))
+        yield {
+            "type": f"{self.protocol}.response.start",
+            "status": self.status,
+            "headers": self.headers
+        }
 
-    @classmethod
-    def _render_content(cls, content: Union[bytes, str]) -> bytes:
-        """Encode content to bytes for use as a response body.
+        yield {
+            "type": f"{self.protocol}.response.body",
+            "body": self.body,
+            "more_body": False
+        }
 
-        Args:
-            content (Union[bytes, str]): the content to render.
+class StreamResponse(Http):
+    """A streamed HTTP response.
 
-        Returns:
-            bytes: the rendered content.
+    Produces two or more messages, rendering the body content in separate
+    messages.
+    """
+    def render_messages(self) -> Generator[dict[str, Any], None, None]:
+        """Yield rendered messages.
+
+        The response is converted to a series of dictionary messages.
+
+        Yields:
+            Generator[dict[str, Any], None, None]: a dictionary message.
         """
-        if isinstance(content, bytes):
-            return content
-        return content.encode(cls.charset)
+        yield {
+            "type": f"{self.protocol}.response.start",
+            "status": self.status,
+            "headers": self.headers
+        }
 
-    @staticmethod
-    def _render_header(name: str, value: str) -> tuple[bytes, bytes]:
-        """Render a header for use in a HTTP response.
+        response_type = f"{self.protocol}.response.body"
 
-        Args:
-            name (str): the header name.
-            value (str): the header value.
-
-        Returns:
-            tuple[bytes, bytes]: the rendered header.
-        """
-        return (name.lower().encode("latin-1"), value.encode("latin-1"))
-
-    @classmethod
-    def _render_headers(
-        cls,
-        headers: dict[str, str],
-        content_length: int = 0,
-        content_type: Optional[str] = None,
-    ) -> list[tuple[bytes, bytes]]:
-        """Render a set of headers that are usable for a HTTP response.
-
-        The content-length and content-type headers will be rendered if the
-        content_length and content_type parameters are provided.
-        If content_type begins with 'text/' then the charset will be appended
-        to the header's value.
-
-        Args:
-            headers (dict[str, str]): headers to render.
-            content_length (int, optional): size of the response content.
-                Defaults to None.
-            content_type (str, optional): the MIME type of the response
-                content. Defaults to None.
-
-        Returns:
-            list[tuple[bytes, bytes]]: list of headers rendered for a response.
-        """
-        headers = [
-            cls._render_header(key, value) for key, value in headers.items()
-        ]
-        keys = [header[0] for header in headers]
-
-        if content_length and b"content-length" not in keys:
-            headers.append(
-                cls._render_header("content-length", str(content_length))
-            )
-
-        if content_type is not None and b"content-type" not in keys:
-            if content_type.startswith("text/"):
-                content_type += f"; charset={cls.charset}"
-
-            headers.append(cls._render_header("content-type", content_type))
-
-        return headers
-
-    async def __call__(self, send: Coroutine) -> None:
-        """Send the response to the client.
-
-        Args:
-            send (Coroutine): the coroutine function to call to send the
-                response to the client.
-        """
-        await send(
-            {
-                "type": "http.response.start",
-                "status": self.status_code,
-                "headers": self.headers,
+        for chunk in self.body:
+            yield {
+                "type": response_type,
+                "body": chunk,
+                "more_body": True
             }
-        )
-        await send({"type": "http.response.body", "body": self.body})
+
+        yield {
+            "type": response_type,
+            "body": b"",
+            "more_body": False
+        }
 
 
-class HtmlResponse(Response):
-    """A HTTP response with a media type of text/html.
-
-    Attributes:
-        media_type (str, optional): the content-type of the body.
-    """
-    media_type: Optional[str] = "text/html"
 
 
-class JsonResponse(Response):
-    """A HTTP response with a media type of application/json.
-
-    Attributes:
-        media_type (str, optional): the content-type of the body.
-    """
-
-    media_type: Optional[str] = "application/json"
-
-    @classmethod
-    def _render_content(cls, content: Any) -> bytes:
-        """Convert content to a JSON formatted string and encode to bytes.
-
-        Args:
-            content (Any): the content to render.
-
-        Returns:
-            bytes: the rendered content in JSON form.
-        """
-        if isinstance(content, bytes):
-            return content
-        return dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            indent=None,
-            separators=(",", ":"),
-        ).encode(cls.charset)
 
 
-class PlainTextResponse(Response):
-    """A HTTP response with a media type of text/plain.
 
-    Attributes:
-        media_type (str, optional): the content-type of the body.
-    """
 
-    media_type: Optional[str] = "text/plain"
+
+
+
