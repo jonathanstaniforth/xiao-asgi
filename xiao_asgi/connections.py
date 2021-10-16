@@ -203,5 +203,79 @@ class HttpConnection(Connection):
                 break
 
 
+class WebSocketConnection(Connection):
+    """A WebSocket connection.
+
+    This connection class is capable of receiving requests and sending responses that have the type websocket.
+
+    Attributes:
+        protocol (str): name of the connection protocol, defaults to websocket.
+    """
 
     protocol: str = "websocket"
+
+    def __init__(self, *args):
+        super().__init__(*args)
+
+        self.application_connection_state = "connecting"
+        self.client_connection_state = "connecting"
+
+    async def receive_request(self) -> Request:
+        if self.client_connection_state == "disconnected":
+            raise InvalidConnectionState(
+                "Cannot receive a request from a disconnected client."
+            )
+
+        request = await self.receive()
+        protocol, type = request["type"].split(".")
+
+        if self.client_connection_state == "connecting":
+            if type != "connect":
+                raise InvalidConnectionState(
+                    f"Cannot receive a {type} request from a connecting client."
+                )
+
+            self.client_connection_state = "connected"
+
+        elif self.client_connection_state == "connected":
+            if type not in ["receive", "disconnect"]:
+                raise InvalidConnectionState(
+                    f"Cannot receive a {type} request from a connected client."
+                )
+
+            if type == "disconnect":
+                self.client_connection_state = "disconnected"
+
+        del request["type"]
+
+        return Request(protocol=protocol, type=type, data=request)
+
+    async def send_response(self, response: Response) -> None:
+        if self.application_connection_state == "disconnected":
+            raise InvalidConnectionState(
+                "Cannot send a response when the application has disconnected."
+            )
+
+        for message in response.render_messages():
+            message_type = message["type"].split(".")[1]
+
+            if (
+                self.application_connection_state == "connecting"
+                and message_type not in ["accept", "close"]
+            ):
+                raise InvalidConnectionState(
+                    f"Cannot send a {message_type} response when the application is connecting."
+                )
+
+            if (
+                self.application_connection_state == "connected"
+                and message_type not in ["send", "close"]
+            ):
+                raise InvalidConnectionState(
+                    f"Cannot send a {message_type} response when the application is connected."
+                )
+
+            if message_type == "close":
+                self.application_connection_state = "disconnected"
+
+        await self.send(message)
