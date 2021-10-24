@@ -7,8 +7,10 @@ from xiao_asgi.connections import (
     HttpConnection,
     InvalidConnectionState,
     ProtocolMismatch,
+    ProtocolUnknown,
     TypeMismatch,
     WebSocketConnection,
+    make_connection,
 )
 from xiao_asgi.requests import Request
 from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
@@ -460,3 +462,24 @@ class TestWebSocketConnection:
         send.assert_awaited_once_with(
             {"type": "websocket.close", "code": 1000}
         )
+
+
+class TestMakeConnection:
+    @mark.parametrize(
+        "protocol,connection_class",
+        [("http", HttpConnection), ("websocket", WebSocketConnection)],
+    )
+    def test_create_connection(self, protocol, connection_class):
+        receive = AsyncMock()
+        send = AsyncMock()
+
+        connection = make_connection({"type": protocol}, receive, send)
+
+        assert isinstance(connection, connection_class)
+        assert connection.scope == {"type": protocol}
+        assert connection._receive is receive
+        assert connection._send is send
+
+    def test_unknown_protocol(self):
+        with raises(ProtocolUnknown):
+            make_connection({"type": "unknown"}, AsyncMock(), AsyncMock())

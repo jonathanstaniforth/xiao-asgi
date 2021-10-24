@@ -6,6 +6,10 @@ from xiao_asgi.requests import Request
 from xiao_asgi.responses import Response
 
 
+class ProtocolUnknown(Exception):
+    pass
+
+
 class ProtocolMismatch(Exception):
     pass
 
@@ -279,3 +283,26 @@ class WebSocketConnection(Connection):
                 self.application_connection_state = "disconnected"
 
         await self.send(message)
+
+
+protocols = {"http": HttpConnection, "websocket": WebSocketConnection}
+
+
+def make_connection(scope, receive, send) -> type[Connection]:
+    """Return a :class:`Connection` instance for a protocol.
+
+    Args:
+        scope (dict): [description]
+        receive (Coroutine): [description]
+        send (Coroutine): [description]
+
+    Raises:
+        Exception: if the scope protocol is not available in protocols.
+
+    Returns:
+        type[Connection]: a :class:`Connection` instance for the protocol.
+    """
+    try:
+        return protocols[scope["type"]](scope, receive, send)
+    except KeyError:
+        raise ProtocolUnknown()
