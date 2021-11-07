@@ -21,7 +21,6 @@ class Response(ABC):
         Yields:
             Generator[dict[str, Any], None, None]: a dictionary message.
         """
-        pass
 
 
 class Http(Response):

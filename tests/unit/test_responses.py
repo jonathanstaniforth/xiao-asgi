@@ -1,3 +1,5 @@
+from pytest import raises
+
 from xiao_asgi.responses import (
     AcceptResponse,
     BodyResponse,
@@ -11,16 +13,12 @@ from xiao_asgi.responses import (
 
 
 class TestResponse:
-    class MockResponse(Response):
-        protocol = "test"
-
-        def render_messages(self):
-            pass
-
-    def test_create_instance(self):
-        response = self.MockResponse()
-
-        assert response.protocol == "test"
+    def test_render_method(self):
+        with raises(
+            TypeError,
+            match="Can't instantiate abstract class Response with abstract method render_messages",
+        ):
+            Response()
 
 
 class TestHttp:

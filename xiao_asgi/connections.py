@@ -123,11 +123,19 @@ class Connection(ABC):
 
     @abstractmethod
     async def receive_request(self) -> Request:
-        pass
+        """Receive a request from the client.
+
+        Returns:
+            Request: the received request.
+        """
 
     @abstractmethod
-    async def send_response(self) -> Response:
-        pass
+    async def send_response(self, response: Response) -> None:
+        """Send a response to the client.
+
+        Args:
+            response (Response): the response to send.
+        """
 
 
 class HttpConnection(Connection):
@@ -171,6 +179,14 @@ class HttpConnection(Connection):
         )
 
     async def receive_request(self) -> Request:
+        """Receive a request from the client.
+
+        Raises:
+            TypeMismatch: the request's type does not equal request.
+
+        Returns:
+            Request: the received request.
+        """
         request = await self.receive()
         protocol, type = request["type"].split(".")
 
@@ -184,6 +200,11 @@ class HttpConnection(Connection):
         return Request(protocol=protocol, type=type, data=request)
 
     async def send_response(self, response: Response) -> None:
+        """Send a response to the client.
+
+        Args:
+            response (Response): the response to send.
+        """
         for message in response.render_messages():
             await self.send(message)
 
@@ -225,6 +246,15 @@ class WebSocketConnection(Connection):
         self.client_connection_state = "connecting"
 
     async def receive_request(self) -> Request:
+        """Receive a request from the client.
+
+        Raises:
+            InvalidConnectionState: the client's connection state is not
+            appropriate for the request being received.
+
+        Returns:
+            Request: the received request.
+        """
         if self.client_connection_state == "disconnected":
             raise InvalidConnectionState(
                 "Cannot receive a request from a disconnected client."
@@ -255,6 +285,15 @@ class WebSocketConnection(Connection):
         return Request(protocol=protocol, type=type, data=request)
 
     async def send_response(self, response: Response) -> None:
+        """Send a response to the client.
+
+        Args:
+            response (Response): the response to send.
+
+        Raises:
+            InvalidConnectionState: if the application's connection state is
+            not appropriate for the message being sent.
+        """
         if self.application_connection_state == "disconnected":
             raise InvalidConnectionState(
                 "Cannot send a response when the application has disconnected."
