@@ -282,7 +282,7 @@ class WebSocketConnection(Connection):
             if message_type == "close":
                 self.application_connection_state = "disconnected"
 
-        await self.send(message)
+            await self.send(message)
 
 
 protocols = {"http": HttpConnection, "websocket": WebSocketConnection}
