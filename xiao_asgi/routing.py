@@ -1,115 +1,349 @@
-"""Classes to handle routing requests to endpoints and sending responses."""
-from asyncio import to_thread
-from typing import Any, Callable, Coroutine
+"""Classes to handle routing requests to endpoints."""
+from abc import ABC
+from collections.abc import Coroutine
 
+from xiao_asgi.connections import (
+    Connection,
+    HttpConnection,
+    ProtocolMismatch,
+    WebSocketConnection,
+)
 from xiao_asgi.requests import Request
-from xiao_asgi.responses import PlainTextResponse, Response
-from xiao_asgi.utils import is_coroutine
+from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
 
 
-class Route:
-    """A HTTP route with an endpoint."""
+class Route(ABC):
+    """A generic route.
 
-    def __init__(
-        self,
-        path: str,
-        endpoint: Callable[..., Response],
-        methods: list[str] = ["GET"],
-    ) -> None:
-        """Establish the route and construct the endpoint.
+    Used as a base class for routes that involve a particular protocol.
+
+    Props:
+        protocol (str): the protocol for this route.
+    """
+
+    protocol: str
+
+    def __init__(self, path: str) -> None:
+        """Establish the path for this route.
 
         Args:
-            path (str): the endpoint's path.
-            endpoint (Callable): callback function to call when handling a
-                request.
-            methods (str, optional): the endpoint's HTTP method.
-                Defaults to "GET".
+            path (str): the path for this route.
+
+        Variables:
+            path (str): the path for this route.
         """
-        self.endpoint = self._construct(endpoint)
-        self.methods = methods
         self.path = path
 
-    @staticmethod
-    def _construct(func: Callable[[Request], Any]) -> Coroutine:
-        """Construct a callable endpoint on receipt of a request.
-
-        A synchronous ``func`` will be executed in a separate thread.
+    async def get_endpoint(self, endpoint: str) -> Coroutine:
+        """Return the Coroutine for this endpoint.
 
         Args:
-            func (Callable): endpoint to construct to a callable async
-                endpoint.
+            endpoint (str): the endpoint to retrieve.
 
         Returns:
-            Coroutine: callable async endpoint.
+            Coroutine: the Coroutine for the endoint.
         """
-        coroutine = is_coroutine(func)
+        return getattr(self, endpoint)
 
-        async def endpoint(
-            scope: dict, receive: Coroutine, send: Coroutine
-        ) -> None:
-            request = Request(scope, receive=receive, send=send)
+    async def __call__(self, connection: type[Connection]) -> None:
+        """Pass the connection to the appropriate endpoint.
 
-            if coroutine:
-                response = await func(request)
-            else:
-                response = await to_thread(func, request)
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
 
-            await response(send)
+        Raises:
+            ProtocolMismatch: if the connection's protocol does not match this
+            route's protocol.
+        """
+        if connection.protocol != self.protocol:
+            raise ProtocolMismatch()
 
-        return endpoint
 
-    async def handle(
-        self, scope: dict, receive: Coroutine, send: Coroutine
+class HttpRoute(Route):
+    """A HTTP route.
+
+    Props:
+        protocol (str): the protocol for this route. Defaults to http.
+    """
+
+    protocol: str = "http"
+
+    async def get(self, connection: HttpConnection, request: Request) -> None:
+        """Endpoint for a GET request method.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (HttpConnection): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def head(self, connection: HttpConnection, request: Request) -> None:
+        """Endpoint for a HEAD request method.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def post(self, connection: HttpConnection, request: Request) -> None:
+        """Endpoint for a POST request method.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def put(self, connection: HttpConnection, request: Request) -> None:
+        """Endpoint for a PUT request method.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def delete(
+        self, connection: HttpConnection, request: Request
     ) -> None:
-        """Handle processing a request.
+        """Endpoint for a DELETE request method.
+
+        Override to implement this endpoint.
 
         Args:
-            scope (dict): the request information.
-            receive (Coroutine): the coroutine function to call to receive a
-                client message.
-            send (Coroutine): the coroutine function to call to send the
-                response to the client.
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
         """
-        if scope["method"] not in self.methods:
-            response = PlainTextResponse("Method Not Allowed", status_code=405)
-            await response(send)
-        else:
-            await self.endpoint(scope, receive, send)
+        await self.send_method_not_allowed(connection)
 
-
-class Router:
-    """Handle routing requests to the appropriate endpoint."""
-
-    def __init__(self, routes: list[Route]) -> None:
-        """Establish the list of routes available to the router.
-
-        Args:
-            routes (list[Route]): list of available routes.
-        """
-        self.routes = routes
-
-    async def __call__(
-        self, scope: dict, receive: Coroutine, send: Coroutine
+    async def connect(
+        self, connection: HttpConnection, request: Request
     ) -> None:
-        """Route a request to an endpoint.
+        """Endpoint for a CONNECT request method.
+
+        Override to implement this endpoint.
 
         Args:
-            scope (dict): the request information.
-            receive (Coroutine): the coroutine function to call to receive a
-                client message.
-            send (Coroutine): the coroutine function to call to send the
-                response to the client.
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
         """
-        if scope["type"] != "http":
-            response = PlainTextResponse("Not Found", status_code=404)
-            await response(send)
-            return
+        await self.send_method_not_allowed(connection)
 
-        for route in self.routes:
+    async def options(
+        self, connection: HttpConnection, request: Request
+    ) -> None:
+        """Endpoint for a OPTIONS request method.
 
-            if scope["path"] == route.path:
-                await route.handle(scope, receive, send)
-                return
+        Override to implement this endpoint.
 
-        response = PlainTextResponse("Not Found", status_code=404)
-        await response(send)
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def trace(
+        self, connection: HttpConnection, request: Request
+    ) -> None:
+        """Endpoint for a TRACE request method.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def patch(
+        self, connection: HttpConnection, request: Request
+    ) -> None:
+        """Endpoint for a PATCH request method.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (type[Connection]): a :class:`Connection` instance with
+            the connection information.
+            request (Request): the received request.
+        """
+        await self.send_method_not_allowed(connection)
+
+    async def send_internal_server_error(
+        self, connection: HttpConnection
+    ) -> None:
+        """Send a 500 HTTP response.
+
+        Override to change the response that is sent.
+
+        Args:
+            connection (HttpConnection): the connection to send the response
+            to.
+        """
+        await connection.send_response(
+            BodyResponse(status=500, body=b"Internal Server Error")
+        )
+
+    async def send_not_implemented(self, connection: HttpConnection) -> None:
+        """Send a 501 HTTP response.
+
+        Override to change the response that is sent.
+
+        Args:
+            connection (HttpConnection): the connection to send the response
+            to.
+        """
+        await connection.send_response(
+            BodyResponse(status=501, body=b"Not Implemented")
+        )
+
+    async def send_method_not_allowed(
+        self, connection: HttpConnection
+    ) -> None:
+        """Send a 405 HTTP response.
+
+        Override to change the response that is sent.
+
+        Args:
+            connection (HttpConnection): the connection to send the response
+            to.
+        """
+        await connection.send_response(
+            BodyResponse(status=405, body=b"Method Not Allowed")
+        )
+
+    async def __call__(self, connection: HttpConnection) -> None:
+        """Pass the connection to the appropriate endpoint.
+
+        Sends a 500 HTTP response if an exception is raised when receiving or
+        processesing the request.
+
+        Args:
+            connection (HttpConnection): a :class:`Connection` instance with
+            the connection information.
+
+        Raises:
+            Exception: re-raises any exception that is raised when receiving or
+            processesing the request.
+        """
+        await super().__call__(connection)
+
+        try:
+            endpoint = await self.get_endpoint(connection.method.lower())
+        except AttributeError:
+            await self.send_not_implemented(connection)
+            raise
+
+        try:
+            request = await connection.receive_request()
+            await endpoint(connection, request)
+        except Exception:
+            await self.send_internal_server_error(connection)
+            raise
+
+
+class WebSocketRoute(Route):
+    """A WebSocket route.
+
+    Props:
+        protocol (str): the protocol for this route. Defaults to websocket.
+    """
+
+    protocol: str = "websocket"
+
+    async def connect(
+        self, connection: WebSocketConnection, request: Request
+    ) -> None:
+        """Endpoint for a connect request type.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (WebSocketConnection): a :class:`Connection` instance
+            with the connection information.
+            request (Request): the received request.
+        """
+        await connection.send_response(AcceptResponse())
+
+    async def receive(
+        self, connection: WebSocketConnection, request: Request
+    ) -> None:
+        """Endpoint for a receive request type.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (WebSocketConnection): a :class:`Connection` instance
+            with the connection information.
+            request (Request): the received request.
+        """
+        pass
+
+    async def disconnect(
+        self, connection: WebSocketConnection, request: Request
+    ) -> None:
+        """Endpoint for a disconnect request type.
+
+        Override to implement this endpoint.
+
+        Args:
+            connection (WebSocketConnection): a :class:`Connection` instance
+            with the connection information.
+            request (Request): the received request.
+        """
+        pass
+
+    async def send_internal_error(
+        self, connection: WebSocketConnection
+    ) -> None:
+        """Send a close response with a code of 1011 (Internal Error).
+
+        Override to change how internal errors are handled.
+
+        Args:
+            connection (WebSocketConnection): the connection to send the
+            reponse.
+        """
+        await connection.send_response(CloseResponse(code=1011))
+
+    async def __call__(self, connection: WebSocketConnection) -> None:
+        """Pass the connection to the appropriate endpoint.
+
+        Sends a 1011 close response if an exception is raised when receiving or
+        processesing the request.
+
+        Args:
+            connection (WebSocketConnection): a :class:`Connection` instance
+            with the connection information.
+
+        Raises:
+            Exception: re-raises any exception that is raised when receiving or
+            processesing the request.
+        """
+        await super().__call__(connection)
+
+        try:
+            request = await connection.receive_request()
+            endpoint = await self.get_endpoint(request.type)
+            await endpoint(connection, request)
+        except Exception:
+            await self.send_internal_error(connection)
+            raise

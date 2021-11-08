@@ -1,164 +1,309 @@
-from inspect import iscoroutinefunction
-from unittest.mock import AsyncMock, Mock, call, patch
+from unittest.mock import AsyncMock, Mock, call
 
-from pytest import fixture, mark
+from pytest import fixture, mark, raises
 
+from xiao_asgi.connections import (
+    HttpConnection,
+    ProtocolMismatch,
+    WebSocketConnection,
+)
 from xiao_asgi.requests import Request
-from xiao_asgi.routing import Route, Router
+from xiao_asgi.routing import HttpRoute, Route, WebSocketRoute
 
 
+@fixture
+def http_connection():
+    return HttpConnection({}, AsyncMock(), AsyncMock())
+
+
+@fixture
+def websocket_connection():
+    return WebSocketConnection({}, AsyncMock(), AsyncMock())
+
+
+@mark.asyncio
 class TestRoute:
-    def test_create_with_defaults(self):
-        path = "/test"
-        endpoint = Mock()
-
-        route = Route(path, endpoint)
-
-        assert route.path == path
-        assert iscoroutinefunction(route.endpoint)
-        assert route.methods == ["GET"]
-
-    def test_create_without_defaults(self):
-        path = "/test"
-        endpoint = Mock()
-        methods = ["GET", "POST"]
-
-        route = Route(path, endpoint, methods)
-
-        assert route.path == path
-        assert iscoroutinefunction(route.endpoint)
-        assert route.methods == methods
-
-    @patch("xiao_asgi.routing.Request", spec=Request)
-    @patch("xiao_asgi.routing.is_coroutine")
-    @mark.asyncio
-    async def test_construct_endpoint_with_async_function(
-        self, mock_is_coroutine, mock_request
-    ):
-        mock_is_coroutine.return_value = True
-        func = AsyncMock()
-        receive = AsyncMock()
-        send = AsyncMock()
-        scope = {}
-
-        constructed_endpoint = Route._construct(func)
-        await constructed_endpoint(scope, receive, send)
-
-        mock_request.assert_called_once_with(scope, receive=receive, send=send)
-        func.assert_awaited_once_with(mock_request.return_value)
-        func.return_value.assert_awaited_once_with(send)
-
-    @patch("xiao_asgi.routing.to_thread")
-    @patch("xiao_asgi.routing.Request", spec=Request)
-    @patch("xiao_asgi.routing.is_coroutine")
-    @mark.asyncio
-    async def test_construct_endpoint_with_sync_function(
-        self, mock_is_coroutine, mock_request, mock_to_thread
-    ):
-        mock_is_coroutine.return_value = False
-        func = AsyncMock()
-        receive = AsyncMock()
-        send = AsyncMock()
-        scope = {}
-
-        constructed_endpoint = Route._construct(func)
-        await constructed_endpoint(scope, receive, send)
-
-        mock_request.assert_called_once_with(scope, receive=receive, send=send)
-        mock_to_thread.assert_awaited_once_with(
-            func, mock_request.return_value
-        )
-        mock_to_thread.return_value.assert_awaited_once_with(send)
-
-    @patch("xiao_asgi.routing.Route._construct", return_value=AsyncMock())
-    @mark.asyncio
-    async def test_handle_request_with_valid_method(self, mock_construct):
-        mock_receive = AsyncMock()
-        mock_send = AsyncMock()
-        scope = {"method": "GET"}
-
-        route = Route("/test", Mock())
-        await route.handle(scope, mock_receive, mock_send)
-
-        mock_construct.return_value.assert_awaited_once_with(
-            scope, mock_receive, mock_send
-        )
-
-    @patch("xiao_asgi.routing.Route._construct")
-    @mark.asyncio
-    async def test_handle_request_with_invalid_method(self, mock_construct):
-        mock_endpoint = AsyncMock()
-        mock_construct.return_value = mock_endpoint
-        mock_send = AsyncMock()
-        scope = {"method": "POST"}
-
-        route = Route("/test", Mock())
-        await route.handle(scope, AsyncMock(), mock_send)
-
-        mock_endpoint.assert_not_awaited()
-        mock_send.assert_has_awaits = [
-            call(
-                {
-                    "type": "http.response.start",
-                    "status": 405,
-                    "headers": [
-                        (b"content-length", b""),
-                        (b"content-type", b"text/plain; charset: utf-8"),
-                    ],
-                }
-            ),
-            call({"type": "http.response.body", "body": "Method not allowed"}),
-        ]
-
-
-class TestRouter:
     @fixture
-    def routes(self):
-        return [
-            Route("/", AsyncMock()),
-            Route("/test", AsyncMock(), ["GET", "POST"]),
-        ]
+    def route(self):
+        return Route("/test")
 
-    def test_create(self, routes):
-        router = Router(routes)
-        assert router.routes == routes
+    def test_create_instance(self):
+        route = Route("/test")
 
-    @patch("xiao_asgi.routing.PlainTextResponse", return_value=AsyncMock())
-    @mark.asyncio
-    async def test_unknown_type(self, mock_response, routes):
-        mock_send = AsyncMock()
-        scope = {"type": "websocket"}
+        assert isinstance(route, Route)
+        assert route.path == "/test"
 
-        router = Router(routes)
-        await router(scope, AsyncMock(), mock_send)
+    async def test_get_endpoint_with_valid_endpoint(self, route):
+        get_endpoint = Mock()
+        route.get = get_endpoint
 
-        mock_response.assert_called_once_with("Not Found", status_code=404)
-        mock_response.return_value.assert_awaited_once_with(mock_send)
+        assert await route.get_endpoint("get") is get_endpoint
 
-    @patch("xiao_asgi.routing.PlainTextResponse", return_value=AsyncMock())
-    @mark.asyncio
-    async def test_unknown_route(self, mock_response, routes):
-        mock_send = AsyncMock()
-        scope = {"type": "http", "path": "/unknown"}
+    async def test_get_endpoint_with_invalid_endpoint(self, route):
+        with raises(AttributeError):
+            await route.get_endpoint("get")
 
-        router = Router(routes)
-        await router(scope, AsyncMock(), mock_send)
+    async def test_call_route_with_matching_protocol(
+        self, route, http_connection
+    ):
+        route.protocol = "http"
 
-        mock_response.assert_called_once_with("Not Found", status_code=404)
-        mock_response.return_value.assert_awaited_once_with(mock_send)
+        await route(http_connection)
 
-    @patch("xiao_asgi.routing.PlainTextResponse", return_value=AsyncMock())
-    @mark.asyncio
-    async def test_known_route(self, mock_response, routes):
-        route = Route("/known", AsyncMock())
-        route.handle = AsyncMock()
-        routes.append(route)
-        mock_receive = AsyncMock()
-        mock_send = AsyncMock()
-        scope = {"type": "http", "path": "/known"}
+    async def test_call_route_with_mismatched_protocol(
+        self, route, http_connection
+    ):
+        route.protocol = "websocket"
 
-        router = Router(routes)
-        await router(scope, mock_receive, mock_send)
+        with raises(ProtocolMismatch):
+            await route(http_connection)
 
-        mock_response.assert_not_called()
-        route.handle.assert_awaited_once_with(scope, mock_receive, mock_send)
+
+@mark.asyncio
+class TestHttpRoute:
+    @fixture
+    def http_route(self):
+        return HttpRoute("/test")
+
+    @fixture
+    def http_request(self):
+        return Request(data={}, protocol="http", type="request")
+
+    @mark.parametrize(
+        "method",
+        [
+            "get",
+            "head",
+            "post",
+            "put",
+            "delete",
+            "connect",
+            "options",
+            "trace",
+            "patch",
+        ],
+    )
+    async def test_endpoints_send_method_not_allowed(
+        self, method, http_route, http_connection, http_request
+    ):
+        http_route.send_method_not_allowed = AsyncMock()
+
+        endpoint = getattr(http_route, method)
+        await endpoint(http_connection, http_request)
+
+        http_route.send_method_not_allowed.assert_awaited_once_with(
+            http_connection
+        )
+
+    async def test_send_interval_server_error(
+        self, http_route, http_connection
+    ):
+        await http_route.send_internal_server_error(http_connection)
+
+        http_connection._send.assert_has_awaits(
+            [
+                call(
+                    {
+                        "type": "http.response.start",
+                        "status": 500,
+                        "headers": [],
+                    }
+                ),
+                call(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Internal Server Error",
+                        "more_body": False,
+                    }
+                ),
+            ]
+        )
+
+    async def test_send_not_implemented(self, http_route, http_connection):
+        await http_route.send_not_implemented(http_connection)
+
+        http_connection._send.assert_has_awaits(
+            [
+                call(
+                    {
+                        "type": "http.response.start",
+                        "status": 501,
+                        "headers": [],
+                    }
+                ),
+                call(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Not Implemented",
+                        "more_body": False,
+                    }
+                ),
+            ]
+        )
+
+    async def test_send_method_not_allowed(self, http_route, http_connection):
+        await http_route.send_method_not_allowed(http_connection)
+
+        http_connection._send.assert_has_awaits(
+            [
+                call(
+                    {
+                        "type": "http.response.start",
+                        "status": 405,
+                        "headers": [],
+                    }
+                ),
+                call(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Method Not Allowed",
+                        "more_body": False,
+                    }
+                ),
+            ]
+        )
+
+    async def test_call_with_mismatched_protocol(
+        self, http_route, websocket_connection
+    ):
+        with raises(ProtocolMismatch):
+            await http_route(websocket_connection)
+
+    async def test_call_with_missing_endpoint(
+        self, http_route, http_connection
+    ):
+        http_connection.scope["method"] = "invalid"
+
+        with raises(AttributeError):
+            await http_route(http_connection)
+
+        http_connection._send.assert_has_awaits(
+            [
+                call(
+                    {
+                        "type": "http.response.start",
+                        "status": 501,
+                        "headers": [],
+                    }
+                ),
+                call(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Not Implemented",
+                        "more_body": False,
+                    }
+                ),
+            ]
+        )
+
+    async def test_call_with_endpoint_error(self, http_route, http_connection):
+        http_connection.scope["method"] = "get"
+        http_route.get = AsyncMock(side_effect=Exception)
+
+        with raises(Exception):
+            await http_route(http_connection)
+
+        http_connection._send.assert_has_awaits(
+            [
+                call(
+                    {
+                        "type": "http.response.start",
+                        "status": 500,
+                        "headers": [],
+                    }
+                ),
+                call(
+                    {
+                        "type": "http.response.body",
+                        "body": b"Internal Server Error",
+                        "more_body": False,
+                    }
+                ),
+            ]
+        )
+
+    async def test_call_with_no_error(
+        self, http_route, http_connection, http_request
+    ):
+        http_connection.receive_request = AsyncMock(return_value=http_request)
+        http_connection.scope["method"] = "get"
+        http_route.get = AsyncMock()
+
+        await http_route(http_connection)
+
+        http_route.get.assert_awaited_once_with(http_connection, http_request)
+
+
+@mark.asyncio
+class TestWebSocketRoute:
+    @fixture
+    def websocket_route(self):
+        return WebSocketRoute("/test")
+
+    @fixture
+    def websocket_request(self):
+        return Request(data={}, protocol="websocket", type="receive")
+
+    async def test_connect(
+        self, websocket_route, websocket_connection, websocket_request
+    ):
+        await websocket_route.connect(websocket_connection, websocket_request)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.accept", "subprotocol": None, "headers": []}
+        )
+
+    async def test_receive(
+        self, websocket_route, websocket_connection, websocket_request
+    ):
+        await websocket_route.receive(websocket_connection, websocket_request)
+
+    async def test_disconnect(
+        self, websocket_route, websocket_connection, websocket_request
+    ):
+        await websocket_route.disconnect(
+            websocket_connection, websocket_request
+        )
+
+    async def test_call_with_missing_endpoint(
+        self, websocket_route, websocket_connection, websocket_request
+    ):
+        websocket_request.type = "invalid"
+        websocket_connection.receive_request = AsyncMock(
+            return_value=websocket_request
+        )
+
+        with raises(AttributeError):
+            await websocket_route(websocket_connection)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1011}
+        )
+
+    async def test_call_with_endpoint_error(
+        self, websocket_route, websocket_connection, websocket_request
+    ):
+        websocket_connection.receive = AsyncMock(
+            return_value=websocket_request
+        )
+
+        with raises(Exception):
+            await websocket_route(websocket_connection)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1011}
+        )
+
+    async def test_call_with_no_error(
+        self, websocket_route, websocket_connection, websocket_request
+    ):
+        websocket_connection.receive_request = AsyncMock(
+            return_value=websocket_request
+        )
+        websocket_route.receive = AsyncMock()
+
+        await websocket_route(websocket_connection)
+
+        websocket_route.receive.assert_awaited_once_with(
+            websocket_connection, websocket_request
+        )
