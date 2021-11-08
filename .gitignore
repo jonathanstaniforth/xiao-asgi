@@ -27,8 +27,5 @@ MANIFEST
 .pytest_cache/
 .coverage
 
-# Sphinx documentation
-docs/_build/
-
 # pyenv
 .python-version
