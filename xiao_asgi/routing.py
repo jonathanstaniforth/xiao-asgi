@@ -1,6 +1,15 @@
-"""Classes to handle routing requests to endpoints."""
+"""Routes and endpoints.
+
+The available classes in this module can be used to construct routes for a
+particular protocol and their endpoints.
+
+Classes:
+    Route: abstract base class for building route classes for a protocol.
+    HttpRoute: a HTTP route and endpoints.
+    WebSocketRoute: a WebSocket route.
+"""
 from abc import ABC
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 
 from xiao_asgi.connections import (
     Connection,
@@ -13,11 +22,12 @@ from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
 
 
 class Route(ABC):
-    """A generic route.
+    """A base class for routes.
 
-    Used as a base class for routes that involve a particular protocol.
+    Can be extended to create routes that involve a particular protocol.
 
-    Props:
+    Attributes:
+        path (str): the path for this route.
         protocol (str): the protocol for this route.
     """
 
@@ -29,27 +39,46 @@ class Route(ABC):
         Args:
             path (str): the path for this route.
 
-        Variables:
-            path (str): the path for this route.
+        Example:
+            Creating a route::
+
+                >>> route = Route("/about")
         """
         self.path = path
 
-    async def get_endpoint(self, endpoint: str) -> Coroutine:
-        """Return the Coroutine for this endpoint.
+    async def get_endpoint(
+        self, endpoint: str
+    ) -> Callable[[type[Connection], Request], Coroutine]:
+        """Return the coroutine function for an endpoint.
+
+        The coroutine function must exist on this instance and its name must
+        match ``endpoint``.
 
         Args:
-            endpoint (str): the endpoint to retrieve.
+            endpoint (str): the required endpoint.
 
         Returns:
-            Coroutine: the Coroutine for the endoint.
+            Callable[[type[Connection], Request], Coroutine]: the coroutine
+                function associated with ``endpoint``.
+
+        Example:
+            Retrieving the coroutine function for an endpoint::
+
+                >>> route = Route("/")
+                >>> endpoint = route.get_endpoint("get")
         """
         return getattr(self, endpoint)
 
     async def __call__(self, connection: type[Connection]) -> None:
         """Pass the connection to the appropriate endpoint.
 
+        This method should be extended to implement the appropriate approach
+        to finding and calling the endpoint. When extended, the parent method
+        should be called first. See ``HttpRoute`` and ``WebSocketRoute`` for
+        examples on how to extend this method.
+
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
+            connection (type[Connection]): a ``Connection`` instance with
             the connection information.
 
         Raises:
@@ -63,8 +92,14 @@ class Route(ABC):
 class HttpRoute(Route):
     """A HTTP route.
 
-    Props:
-        protocol (str): the protocol for this route. Defaults to http.
+    Attributes:
+        protocol (str, optional): the protocol for this route. Defaults to
+            http.
+
+    Example:
+        Creating a HTTP route::
+
+            >>> http_route = HttpRoute("/about")
     """
 
     protocol: str = "http"
@@ -75,8 +110,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (HttpConnection): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -87,8 +122,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -99,8 +134,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -111,8 +146,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -125,8 +160,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -139,8 +174,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -153,8 +188,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -167,8 +202,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -181,8 +216,8 @@ class HttpRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (type[Connection]): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
             request (Request): the received request.
         """
         await self.send_method_not_allowed(connection)
@@ -196,7 +231,7 @@ class HttpRoute(Route):
 
         Args:
             connection (HttpConnection): the connection to send the response
-            to.
+                to.
         """
         await connection.send_response(
             BodyResponse(status=500, body=b"Internal Server Error")
@@ -209,7 +244,7 @@ class HttpRoute(Route):
 
         Args:
             connection (HttpConnection): the connection to send the response
-            to.
+                to.
         """
         await connection.send_response(
             BodyResponse(status=501, body=b"Not Implemented")
@@ -224,7 +259,7 @@ class HttpRoute(Route):
 
         Args:
             connection (HttpConnection): the connection to send the response
-            to.
+                to.
         """
         await connection.send_response(
             BodyResponse(status=405, body=b"Method Not Allowed")
@@ -234,15 +269,23 @@ class HttpRoute(Route):
         """Pass the connection to the appropriate endpoint.
 
         Sends a 500 HTTP response if an exception is raised when receiving or
-        processesing the request.
+        processesing the request. Sends a 501 HTTP response if the endpoint is
+        not found.
 
         Args:
-            connection (HttpConnection): a :class:`Connection` instance with
-            the connection information.
+            connection (HttpConnection): a ``Connection`` instance with
+                the connection information.
 
         Raises:
             Exception: re-raises any exception that is raised when receiving or
-            processesing the request.
+                processesing the request.
+
+        Example:
+            Routing a HTTP connection::
+
+                >>> connection = HttpConnection(scope, receive, send)
+                >>> route = HttpRoute("/")
+                >>> route(connection)
         """
         await super().__call__(connection)
 
@@ -263,8 +306,14 @@ class HttpRoute(Route):
 class WebSocketRoute(Route):
     """A WebSocket route.
 
-    Props:
-        protocol (str): the protocol for this route. Defaults to websocket.
+    Attributes:
+        protocol (str, optional): the protocol for this route. Defaults to
+            websocket.
+
+    Example:
+        Creating a WebSocket route:
+
+            >>> websocket_route = WebSocketRoute("/chat")
     """
 
     protocol: str = "websocket"
@@ -274,11 +323,11 @@ class WebSocketRoute(Route):
     ) -> None:
         """Endpoint for a connect request type.
 
-        Override to implement this endpoint.
+        Override to implement this endpoint. Sends a WebSocket accept response.
 
         Args:
-            connection (WebSocketConnection): a :class:`Connection` instance
-            with the connection information.
+            connection (WebSocketConnection): a ``Connection`` instance
+                with the connection information.
             request (Request): the received request.
         """
         await connection.send_response(AcceptResponse())
@@ -291,11 +340,10 @@ class WebSocketRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (WebSocketConnection): a :class:`Connection` instance
-            with the connection information.
+            connection (WebSocketConnection): a ``Connection`` instance
+                with the connection information.
             request (Request): the received request.
         """
-        pass
 
     async def disconnect(
         self, connection: WebSocketConnection, request: Request
@@ -305,11 +353,10 @@ class WebSocketRoute(Route):
         Override to implement this endpoint.
 
         Args:
-            connection (WebSocketConnection): a :class:`Connection` instance
-            with the connection information.
+            connection (WebSocketConnection): a ``Connection`` instance
+                with the connection information.
             request (Request): the received request.
         """
-        pass
 
     async def send_internal_error(
         self, connection: WebSocketConnection
@@ -320,7 +367,7 @@ class WebSocketRoute(Route):
 
         Args:
             connection (WebSocketConnection): the connection to send the
-            reponse.
+                reponse.
         """
         await connection.send_response(CloseResponse(code=1011))
 
@@ -331,12 +378,19 @@ class WebSocketRoute(Route):
         processesing the request.
 
         Args:
-            connection (WebSocketConnection): a :class:`Connection` instance
-            with the connection information.
+            connection (WebSocketConnection): a ``Connection`` instance
+                with the connection information.
 
         Raises:
             Exception: re-raises any exception that is raised when receiving or
-            processesing the request.
+                processesing the request.
+
+        Example:
+            Routing a WebSocket connection::
+
+                >>> connection = WebSocketConnection(scope, receive, send)
+                >>> route = WebSocketRoute("/")
+                >>> route(connection)
         """
         await super().__call__(connection)
 
