@@ -1,3 +1,26 @@
+"""Handling HTTP and WebSocket connection.
+
+Several classes for handling HTTP and WebSocket connections including
+receiving and send messages, along with exceptions for connection errors.
+
+Classes:
+    ProtocolUnknown: an unknown protocol is being used.
+    ProtocolMismatch: protocols between two objects do not match.
+    TypeMismatch: types between two object do not align.
+    InvalidConnectionState: connection state of a client/application is not
+        appropriate for the request/response.
+    Connection: abstract base class from which connection classes can be built
+        for a protocol.
+    HttpConnection: for handling HTTP connections.
+    WebSocketConnection: for handling WebSocket connections.
+
+Functions:
+    make_connection: factory function for creating a connection instance for a
+        protocol.
+
+Variables:
+    protocols: list of known protocols and their associated connection class.
+"""
 from abc import ABC, abstractmethod
 from collections.abc import Coroutine, Generator
 from typing import Any
@@ -7,28 +30,71 @@ from xiao_asgi.responses import Response
 
 
 class ProtocolUnknown(Exception):
-    pass
+    """The protocol used is unknown.
+
+    The list of known protocols is set in the ``protocols`` module variable.
+
+    Example:
+        When this exception is raised::
+
+            >>> if scope["type"] != connection.protocol:
+            >>>     raise ProtocolUnknown()
+    """
 
 
 class ProtocolMismatch(Exception):
-    pass
+    """The protocols used by two objects do not match.
+
+    Example:
+        When this exception is raised::
+
+            >>> if request["type"].split(".")[0] != connection.protocol:
+            >>>     raise ProtocolMismatch()
+    """
 
 
 class TypeMismatch(Exception):
-    pass
+    """The types between two objects do not align.
+
+    Types do not need to match, however, they do need to be appropriate for
+    each other.
+
+    Example:
+        When this exception is raised::
+
+            >>> protocol, type = request["type"].split(".")
+            >>> if type != "request":
+            >>>     raise TypeMismatch((
+            >>>         f"Request type ({type}) does not match the expected "
+            >>>         f"type (request)."
+            >>>     ))
+    """
 
 
 class InvalidConnectionState(Exception):
-    pass
+    """A connection state is not valid for the type of request/response.
+
+    Example:
+        When this exception is raised::
+
+            >>> if self.application_connection_state == "disconnected":
+            >>>     raise InvalidConnectionState((
+            >>>         f"Cannot send a response when the application has "
+            >>>         f"disconnected."
+            >>>     ))
+    """
 
 
 class Connection(ABC):
-    """A connection from a client to the application.
+    """A base connection class for handling messages to and from a connection.
 
-    Can be extend to represent a connection that uses a specific protocol.
+    Can be extended for a specific protocol.
 
     Attributes:
         protocol (str): name of the connection protocol.
+        scope (dict[str, Any]): the connection information.
+        _receive (Coroutine): coroutine for receiving requests.
+        _send (Coroutine): coroutine for sending responses.
     """
 
     protocol: str
@@ -41,13 +107,10 @@ class Connection(ABC):
     ):
         """Establish the connection information.
 
-        This includes Coroutines that are able to receive requests from the
-        client and send responses to the client.
-
         Args:
-            scope (dict): the connection information.
-            receive (Coroutine[dict, None, None]): Coroutine that is awaited to receive an incoming request.
-            send (Coroutine[dict, None, None]): Coroutine that is awaited to send responses.
+            scope (dict[str, Any]): the connection information.
+            receive (Coroutine): coroutine for receiving requests.
+            send (Coroutine): coroutine for sending responses.
         """
         self.scope = scope
         self._receive = receive
@@ -90,14 +153,17 @@ class Connection(ABC):
                 the connection's protocol.
 
         Returns:
-            Request: the received request.
+            dict[str, Any]: the received request.
         """
         request = await self._receive()
         request_protocol = request["type"].split(".")[0]
 
         if request_protocol != self.protocol:
             raise ProtocolMismatch(
-                f"Received request protocol ({request_protocol}) does not match this connection protocol ({self.protocol})."
+                (
+                    f"Received request protocol ({request_protocol}) does not "
+                    f"match this connection protocol ({self.protocol})."
+                )
             )
 
         return request
@@ -116,7 +182,10 @@ class Connection(ABC):
 
         if response_protocol != self.protocol:
             raise ProtocolMismatch(
-                f"Response protocol ({response_protocol}) does not match this connection protocol ({self.protocol})."
+                (
+                    f"Response protocol ({response_protocol}) does not match "
+                    f"this connection protocol ({self.protocol})."
+                )
             )
 
         await self._send(response)
@@ -165,7 +234,7 @@ class HttpConnection(Connection):
         The body is constructed from all the requests received from the client.
 
         Returns:
-            bytes: the constructed body.
+            Request: the constructed body.
         """
         body = b""
 
@@ -192,7 +261,10 @@ class HttpConnection(Connection):
 
         if type != "request":
             raise TypeMismatch(
-                f"Request type ({type}) does not match the expected type (request)."
+                (
+                    f"Request type ({type}) does not match the expected type "
+                    f"(request)."
+                )
             )
 
         del request["type"]
@@ -214,7 +286,8 @@ class HttpConnection(Connection):
         The body of each request is yielded.
 
         Raises:
-            RequestTypeMismatch: if a request's type does not match the type receive.
+            RequestTypeMismatch: if a request's type does not match the type
+                receive.
 
         Yields:
             Generator[bytes, None, None]: the body of a request.
@@ -231,15 +304,21 @@ class HttpConnection(Connection):
 class WebSocketConnection(Connection):
     """A WebSocket connection.
 
-    This connection class is capable of receiving requests and sending responses that have the type websocket.
+    This connection class is capable of receiving requests and sending
+    responses that have the type websocket.
 
     Attributes:
         protocol (str): name of the connection protocol, defaults to websocket.
+        application_connection_state (str): the application's connection state.
+            Defaults to connecting.
+        client_connection_state (str): the client's connection state. Defaults
+            to connecting.
     """
 
     protocol: str = "websocket"
 
     def __init__(self, *args):
+        """Set the connection state for the application and client."""
         super().__init__(*args)
 
         self.application_connection_state = "connecting"
@@ -250,7 +329,7 @@ class WebSocketConnection(Connection):
 
         Raises:
             InvalidConnectionState: the client's connection state is not
-            appropriate for the request being received.
+                appropriate for the request being received.
 
         Returns:
             Request: the received request.
@@ -266,7 +345,10 @@ class WebSocketConnection(Connection):
         if self.client_connection_state == "connecting":
             if type != "connect":
                 raise InvalidConnectionState(
-                    f"Cannot receive a {type} request from a connecting client."
+                    (
+                        f"Cannot receive a {type} request from a connecting "
+                        f"client."
+                    )
                 )
 
             self.client_connection_state = "connected"
@@ -292,7 +374,7 @@ class WebSocketConnection(Connection):
 
         Raises:
             InvalidConnectionState: if the application's connection state is
-            not appropriate for the message being sent.
+                not appropriate for the message being sent.
         """
         if self.application_connection_state == "disconnected":
             raise InvalidConnectionState(
@@ -307,7 +389,10 @@ class WebSocketConnection(Connection):
                 and message_type not in ["accept", "close"]
             ):
                 raise InvalidConnectionState(
-                    f"Cannot send a {message_type} response when the application is connecting."
+                    (
+                        f"Cannot send a {message_type} response when the "
+                        f"application is connecting."
+                    )
                 )
 
             if (
@@ -315,7 +400,10 @@ class WebSocketConnection(Connection):
                 and message_type not in ["send", "close"]
             ):
                 raise InvalidConnectionState(
-                    f"Cannot send a {message_type} response when the application is connected."
+                    (
+                        f"Cannot send a {message_type} response when the "
+                        f"application is connected."
+                    )
                 )
 
             if message_type == "close":
@@ -325,21 +413,24 @@ class WebSocketConnection(Connection):
 
 
 protocols = {"http": HttpConnection, "websocket": WebSocketConnection}
+"""dict[str, type[Connection]]: maps protocol names to connection classes."""
 
 
 def make_connection(scope, receive, send) -> type[Connection]:
-    """Return a :class:`Connection` instance for a protocol.
+    """Return a ``Connection`` instance for a protocol.
 
     Args:
-        scope (dict): [description]
-        receive (Coroutine): [description]
-        send (Coroutine): [description]
+        scope (dict): the request information.
+        receive (Coroutine): the coroutine function to call to receive a
+            client request.
+        send (Coroutine): the coroutine function to call to send the
+            response to the client.
 
     Raises:
         Exception: if the scope protocol is not available in protocols.
 
     Returns:
-        type[Connection]: a :class:`Connection` instance for the protocol.
+        type[Connection]: a ``Connection`` instance for the protocol.
     """
     try:
         return protocols[scope["type"]](scope, receive, send)
