@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "xiao-asgi"
-version = "0.1.0"
+version = "0.2.1"
 description = "A small ASGI framework."
 authors = ["Jonathan Staniforth <jonathanstaniforth@gmail.com>"]
 license = "MIT"
