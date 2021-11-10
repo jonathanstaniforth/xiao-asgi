@@ -10,6 +10,13 @@ HTTP and WebSockets are both supported.
 
 xiao asgi can be installed into a Python environment by running `pip install xiao-asgi`.
 
+### Supported Python versions
+
+xiao asgi has been tested with the following versions of Python:
+
+* 3.10.0
+* 3.9.7
+
 ## Documentation
 
 Docstrings are included in the project and more information can be found at the [Wiki](https://github.com/jonathanstaniforth/xiao-asgi/wiki) tab (work in progress).
