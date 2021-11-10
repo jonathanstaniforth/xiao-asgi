@@ -29,3 +29,6 @@ MANIFEST
 
 # pyenv
 .python-version
+
+# tox
+.tox
