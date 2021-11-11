@@ -55,9 +55,9 @@ class Xiao:
 
         Example:
             Passing the application to a webserver so that requests can be
-            routed, e.g. uvicorn::
+            routed, e.g. hypercorn::
 
-                $ uvicorn main:app
+                $ hypercorn main:app
         """
         connection = make_connection(scope, receive, send)
 
