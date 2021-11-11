@@ -6,6 +6,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The routes parameter for the Xiao class is now a keyword parameter with a default value of an empty list allowing it to be optional.
+
 ## [0.2.1] - 2021-11-10
 ### Changed
 - The project version to 0.2.1.
