@@ -24,16 +24,17 @@ class Xiao:
             routes.
     """
 
-    def __init__(self, routes: list[Route]) -> None:
+    def __init__(self, routes: list[Route] = []) -> None:
         """Establish the application's available routes.
 
         Args:
-            routes (list[Route]): the available routes.
+            routes (list[Route], optional): the available routes. Defaults to
+                an empty list.
 
         Example:
             Creating an application::
 
-                >>> app = Xiao([
+                >>> app = Xiao(routes=[
                 >>>    Route("/"),
                 >>>    Route("/about)
                 >>> ])

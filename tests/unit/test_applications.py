@@ -32,7 +32,11 @@ class TestXiao:
             "query_string": "",
         }
 
-    def test_create(self, routes):
+    def test_create_without_routes(self):
+        app = Xiao()
+        assert app._routes == []
+
+    def test_create_with_routes(self, routes):
         app = Xiao(routes)
         assert isinstance(app.logger, Logger)
         assert app._routes == routes
