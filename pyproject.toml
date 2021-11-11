@@ -5,7 +5,7 @@ description = "A small ASGI framework."
 authors = ["Jonathan Staniforth <jonathanstaniforth@gmail.com>"]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/limber-project/limberframework"
+repository = "https://github.com/jonathanstaniforth/xiao-asgi"
 keywords = ["python", "asgi"]
 
 [tool.poetry.dependencies]
