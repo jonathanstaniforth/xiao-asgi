@@ -4,6 +4,7 @@ from pytest import fixture, mark, raises
 
 from xiao_asgi.connections import (
     HttpConnection,
+    InvalidConnectionState,
     ProtocolMismatch,
     WebSocketConnection,
 )
@@ -265,6 +266,24 @@ class TestWebSocketRoute:
             websocket_connection, websocket_request
         )
 
+    async def test_send_denial_response(
+        self, websocket_route, websocket_connection
+    ):
+        await websocket_route.send_denial_error(websocket_connection)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1002}
+        )
+
+    async def test_send_protocol_error(
+        self, websocket_route, websocket_connection
+    ):
+        await websocket_route.send_protocol_error(websocket_connection)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1002}
+        )
+
     async def test_call_with_missing_endpoint(
         self, websocket_route, websocket_connection, websocket_request
     ):
@@ -306,4 +325,34 @@ class TestWebSocketRoute:
 
         websocket_route.receive.assert_awaited_once_with(
             websocket_connection, websocket_request
+        )
+
+    async def test_call_with_invalid_connection_state_error(
+        self, websocket_route, websocket_connection
+    ):
+        websocket_connection.client_connection_state = "connected"
+        websocket_connection.receive_request = AsyncMock(
+            side_effect=InvalidConnectionState()
+        )
+
+        with raises(InvalidConnectionState):
+            await websocket_route(websocket_connection)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1002}
+        )
+
+    async def test_call_with_connecting_client_invalid_connection_state(
+        self, websocket_route, websocket_connection
+    ):
+        websocket_connection.client_connection_state = "connecting"
+        websocket_connection.receive_request = AsyncMock(
+            side_effect=InvalidConnectionState()
+        )
+
+        with raises(InvalidConnectionState):
+            await websocket_route(websocket_connection)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1002}
         )

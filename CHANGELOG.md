@@ -5,6 +5,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+### Added
+- Handling for ``InvalidConnectionState`` exceptions in ``WebSocketRoute.__call__()`` and introduced the ``WebSocketRoute.send_denial_error()`` method to allow for custom WebSocket denial responses.
 
 ### Changed
 - The routes parameter for the Xiao class is now a keyword parameter with a default value of an empty list allowing it to be optional.

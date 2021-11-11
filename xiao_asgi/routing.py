@@ -14,6 +14,7 @@ from collections.abc import Callable, Coroutine
 from xiao_asgi.connections import (
     Connection,
     HttpConnection,
+    InvalidConnectionState,
     ProtocolMismatch,
     WebSocketConnection,
 )
@@ -358,6 +359,18 @@ class WebSocketRoute(Route):
             request (Request): the received request.
         """
 
+    async def send_denial_error(self, connection: WebSocketConnection) -> None:
+        """Send a close response with a code of 1002 (Protocol Error).
+
+        Override to change how denial errors are handled, for example to
+        send a HTTP response using the WebSocket denial response extension.
+
+        Args:
+            connection (WebSocketConnection): the connection to send the
+                response.
+        """
+        await self.send_protocol_error(connection)
+
     async def send_internal_error(
         self, connection: WebSocketConnection
     ) -> None:
@@ -371,11 +384,25 @@ class WebSocketRoute(Route):
         """
         await connection.send_response(CloseResponse(code=1011))
 
+    async def send_protocol_error(
+        self, connection: WebSocketConnection
+    ) -> None:
+        """Send a close response with a code of 1002 (Protocol Error).
+
+        Override to change how protocol errors are handled.
+
+        Args:
+            connection (WebSocketConnection): the connection to send the
+                response.
+        """
+        await connection.send_response(CloseResponse(code=1002))
+
     async def __call__(self, connection: WebSocketConnection) -> None:
         """Pass the connection to the appropriate endpoint.
 
         Sends a 1011 close response if an exception is raised when receiving or
-        processesing the request.
+        processesing the request. A 1002 close response is sent if a
+        ``InvalidConnectionState`` exception is raised.
 
         Args:
             connection (WebSocketConnection): a ``Connection`` instance
@@ -398,6 +425,12 @@ class WebSocketRoute(Route):
             request = await connection.receive_request()
             endpoint = await self.get_endpoint(request.type)
             await endpoint(connection, request)
+        except InvalidConnectionState:
+            if connection.client_connection_state == "connecting":
+                await self.send_denial_error(connection)
+            else:
+                await self.send_protocol_error(connection)
+            raise
         except Exception:
             await self.send_internal_error(connection)
             raise
