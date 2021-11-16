@@ -18,7 +18,7 @@ from xiao_asgi.connections import (
     WebSocketConnection,
 )
 from xiao_asgi.requests import Request
-from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
+from xiao_asgi.responses import BodyResponse
 
 
 class Route(ABC):
@@ -330,7 +330,7 @@ class WebSocketRoute(Route):
                 with the connection information.
             request (Request): the received request.
         """
-        await connection.send_response(AcceptResponse())
+        await connection.accept_connection()
 
     async def receive(
         self, connection: WebSocketConnection, request: Request
@@ -369,7 +369,7 @@ class WebSocketRoute(Route):
             connection (WebSocketConnection): the connection to send the
                 reponse.
         """
-        await connection.send_response(CloseResponse(code=1011))
+        await connection.close_connection(code=1011)
 
     async def __call__(self, connection: WebSocketConnection) -> None:
         """Pass the connection to the appropriate endpoint.

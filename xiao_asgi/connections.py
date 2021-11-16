@@ -22,8 +22,8 @@ Variables:
     protocols: list of known protocols and their associated connection class.
 """
 from abc import ABC, abstractmethod
-from collections.abc import Coroutine, Generator
-from typing import Any
+from collections.abc import Coroutine, Generator, Iterable
+from typing import Any, Optional
 
 from xiao_asgi.requests import Request
 from xiao_asgi.responses import Response
@@ -112,6 +112,9 @@ class Connection(ABC):
             receive (Coroutine): coroutine for receiving requests.
             send (Coroutine): coroutine for sending responses.
         """
+        if scope["type"] != self.protocol:
+            ValueError(f"The type of the connection must be {self.protocol}, not {scope['type']}.")
+
         self.scope = scope
         self._receive = receive
         self._send = send
@@ -145,29 +148,6 @@ class Connection(ABC):
             "query_string": self.scope.get("query_string"),
         }
 
-    async def receive(self) -> dict[str, Any]:
-        """Receive an incoming request from the client.
-
-        Raises:
-            ProtocolMismatch: if the received request's protocol does not match
-                the connection's protocol.
-
-        Returns:
-            dict[str, Any]: the received request.
-        """
-        request = await self._receive()
-        request_protocol = request["type"].split(".")[0]
-
-        if request_protocol != self.protocol:
-            raise ProtocolMismatch(
-                (
-                    f"Received request protocol ({request_protocol}) does not "
-                    f"match this connection protocol ({self.protocol})."
-                )
-            )
-
-        return request
-
     async def send(self, response: dict[str, Any]) -> None:
         """Send a response to the client.
 
@@ -196,14 +176,6 @@ class Connection(ABC):
 
         Returns:
             Request: the received request.
-        """
-
-    @abstractmethod
-    async def send_response(self, response: Response) -> None:
-        """Send a response to the client.
-
-        Args:
-            response (Response): the response to send.
         """
 
 
@@ -309,9 +281,7 @@ class WebSocketConnection(Connection):
 
     Attributes:
         protocol (str): name of the connection protocol, defaults to websocket.
-        application_connection_state (str): the application's connection state.
-            Defaults to connecting.
-        client_connection_state (str): the client's connection state. Defaults
+        connection_state (str): the current state of the connection. Defaults
             to connecting.
     """
 
@@ -321,95 +291,94 @@ class WebSocketConnection(Connection):
         """Set the connection state for the application and client."""
         super().__init__(*args)
 
-        self.application_connection_state = "connecting"
-        self.client_connection_state = "connecting"
+        self.connection_state = "connecting"
+
+    async def accept_connection(
+        self,
+        subprotocol: Optional[str] = None,
+        headers: Iterable[Iterable[bytes, bytes]] = [],
+    ) -> None:
+        """Accept the WebSocket connection.
+
+        Sends an accept response to the client.
+
+        Args:
+            subprotocol (Optional[str], optional): the subprotocol selected by
+                the application. Defaults to None.
+            headers (Iterable[Iterable[bytes, bytes]], optional): the headers
+                of the response. Defaults to [].
+        """
+        await self._send(
+            {
+                "type": f"{self.protocol}.accept",
+                "subprotocol": subprotocol,
+                "headers": headers,
+            }
+        )
+        self.connection_state = "accepted"
+
+    async def close_connection(self, code: Optional[int] = 1000) -> None:
+        """Close the WebSocket connection.
+
+        Sends a close response to the client.
+
+        Args:
+            code (Optional[int], optional): the close code. Defaults to 1000.
+        """
+        await self._send({"type": f"{self.protocol}.close", "code": code})
+        self.connection_state = "closed"
 
     async def receive_request(self) -> Request:
         """Receive a request from the client.
 
         Raises:
-            InvalidConnectionState: the client's connection state is not
-                appropriate for the request being received.
+            InvalidConnectionState: ``self.connection_state`` is disconnected.
 
         Returns:
             Request: the received request.
         """
-        if self.client_connection_state == "disconnected":
+        if self.connection_state == "disconnected":
             raise InvalidConnectionState(
-                "Cannot receive a request from a disconnected client."
+                "Cannot receive a request from a disconnected connection."
             )
 
-        request = await self.receive()
+        request = await self._receive()
         protocol, type = request["type"].split(".")
 
-        if self.client_connection_state == "connecting":
-            if type != "connect":
-                raise InvalidConnectionState(
-                    (
-                        f"Cannot receive a {type} request from a connecting "
-                        f"client."
-                    )
-                )
-
-            self.client_connection_state = "connected"
-
-        elif self.client_connection_state == "connected":
-            if type not in ["receive", "disconnect"]:
-                raise InvalidConnectionState(
-                    f"Cannot receive a {type} request from a connected client."
-                )
-
-            if type == "disconnect":
-                self.client_connection_state = "disconnected"
+        if type == "connect":
+            self.connection_state = "connected"
+        elif type == "disconnect":
+            self.connection_state = "disconnected"
 
         del request["type"]
 
         return Request(protocol=protocol, type=type, data=request)
 
-    async def send_response(self, response: Response) -> None:
-        """Send a response to the client.
+    async def send_bytes(self, data: bytes) -> None:
+        """Send a message containing bytes data to the client.
 
         Args:
-            response (Response): the response to send.
-
-        Raises:
-            InvalidConnectionState: if the application's connection state is
-                not appropriate for the message being sent.
+            data (bytes): the contents of the message.
         """
-        if self.application_connection_state == "disconnected":
-            raise InvalidConnectionState(
-                "Cannot send a response when the application has disconnected."
-            )
+        await self._send(
+            {
+                "type": f"{self.protocol}.send",
+                "bytes": data,
+            }
+        )
 
-        for message in response.render_messages():
-            message_type = message["type"].split(".")[1]
+    async def send_text(self, data: str) -> None:
+        """Send a message containing string data to the client.
 
-            if (
-                self.application_connection_state == "connecting"
-                and message_type not in ["accept", "close"]
-            ):
-                raise InvalidConnectionState(
-                    (
-                        f"Cannot send a {message_type} response when the "
-                        f"application is connecting."
-                    )
-                )
-
-            if (
-                self.application_connection_state == "connected"
-                and message_type not in ["send", "close"]
-            ):
-                raise InvalidConnectionState(
-                    (
-                        f"Cannot send a {message_type} response when the "
-                        f"application is connected."
-                    )
-                )
-
-            if message_type == "close":
-                self.application_connection_state = "disconnected"
-
-            await self.send(message)
+        Args:
+            data (str): the contents of the message.
+        """
+        await self._send(
+            {
+                "type": f"{self.protocol}.send",
+                "text": data,
+            }
+        )
 
 
 protocols = {"http": HttpConnection, "websocket": WebSocketConnection}

@@ -1,14 +1,10 @@
 from pytest import raises
 
 from xiao_asgi.responses import (
-    AcceptResponse,
     BodyResponse,
-    CloseResponse,
     Http,
-    MessageResponse,
     Response,
     StreamResponse,
-    WebSocket,
 )
 
 
@@ -16,7 +12,10 @@ class TestResponse:
     def test_render_method(self):
         with raises(
             TypeError,
-            match="Can't instantiate abstract class Response with abstract method render_messages",
+            match=(
+                f"Can't instantiate abstract class Response with "
+                f"abstractmethod render_messages",
+            )
         ):
             Response()
 
@@ -149,151 +148,3 @@ class TestStreamResponse:
             },
             {"type": "http.response.body", "body": b"", "more_body": False},
         ]
-
-
-class TestWebSocket:
-    class MockWebSocket(WebSocket):
-        def render_messages(self):
-            pass
-
-    def test_create_instance(self):
-        response = self.MockWebSocket()
-
-        assert response.protocol == "websocket"
-
-
-class TestAcceptResponse:
-    def test_create_instance_with_defaults(self):
-        response = AcceptResponse()
-
-        assert isinstance(response, WebSocket)
-        assert response.headers == []
-        assert response.subprotocol == None
-
-    def test_create_instance_with_customs(self):
-        response = AcceptResponse(
-            "protocol-v1",
-            [
-                (b"content-type", b"text/plain"),
-                (b"user-agent", b"PostmanRuntime/7.26.8"),
-                (b"accept", b"*/*"),
-                (b"host", b"localhost:8000"),
-                (b"accept-encoding", b"gzip, deflate, br"),
-                (b"connection", b"keep-alive"),
-                (b"content-length", b"5"),
-            ],
-        )
-
-        assert response.headers == [
-            (b"content-type", b"text/plain"),
-            (b"user-agent", b"PostmanRuntime/7.26.8"),
-            (b"accept", b"*/*"),
-            (b"host", b"localhost:8000"),
-            (b"accept-encoding", b"gzip, deflate, br"),
-            (b"connection", b"keep-alive"),
-            (b"content-length", b"5"),
-        ]
-        assert response.subprotocol == "protocol-v1"
-
-    def test_render_messages_with_defaults(self):
-        response = AcceptResponse()
-
-        messages = [message for message in response.render_messages()]
-
-        assert messages[0] == {
-            "type": "websocket.accept",
-            "subprotocol": None,
-            "headers": [],
-        }
-
-    def test_render_messages_with_customs(self):
-        response = AcceptResponse(
-            "protocol-v1",
-            [
-                (b"content-type", b"text/plain"),
-                (b"user-agent", b"PostmanRuntime/7.26.8"),
-                (b"accept", b"*/*"),
-                (b"host", b"localhost:8000"),
-                (b"accept-encoding", b"gzip, deflate, br"),
-                (b"connection", b"keep-alive"),
-                (b"content-length", b"5"),
-            ],
-        )
-
-        messages = [message for message in response.render_messages()]
-
-        assert messages[0] == {
-            "type": "websocket.accept",
-            "subprotocol": "protocol-v1",
-            "headers": [
-                (b"content-type", b"text/plain"),
-                (b"user-agent", b"PostmanRuntime/7.26.8"),
-                (b"accept", b"*/*"),
-                (b"host", b"localhost:8000"),
-                (b"accept-encoding", b"gzip, deflate, br"),
-                (b"connection", b"keep-alive"),
-                (b"content-length", b"5"),
-            ],
-        }
-
-
-class TestMessageResponse:
-    def test_create_instance_with_defaults(self):
-        response = MessageResponse()
-
-        assert response.bytes == None
-        assert response.text == None
-
-    def test_create_instance_with_customs(self):
-        response = MessageResponse(b"Hello World!", "Hello World!")
-
-        assert response.bytes == b"Hello World!"
-        assert response.text == "Hello World!"
-
-    def test_render_messages_with_defaults(self):
-        response = MessageResponse()
-
-        messages = [message for message in response.render_messages()]
-
-        assert messages[0] == {
-            "type": "websocket.send",
-            "bytes": None,
-            "text": None,
-        }
-
-    def test_render_messages_with_customs(self):
-        response = MessageResponse(b"Hello World!", "Hello World!")
-
-        messages = [message for message in response.render_messages()]
-
-        assert messages[0] == {
-            "type": "websocket.send",
-            "bytes": b"Hello World!",
-            "text": "Hello World!",
-        }
-
-
-class TestCloseResponse:
-    def test_create_instance_with_defaults(self):
-        response = CloseResponse()
-
-        assert response.code == 1000
-
-    def test_create_instance_with_customs(self):
-        response = CloseResponse(1001)
-
-        assert response.code == 1001
-
-    def test_render_messages_with_defaults(self):
-        response = CloseResponse()
-
-        messages = [message for message in response.render_messages()]
-
-        assert messages[0] == {"type": "websocket.close", "code": 1000}
-
-    def test_render_messages_with_defaults(self):
-        response = CloseResponse(1001)
-
-        messages = [message for message in response.render_messages()]
-
-        assert messages[0] == {"type": "websocket.close", "code": 1001}

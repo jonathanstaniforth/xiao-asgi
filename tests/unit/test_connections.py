@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, Mock, call
 
-from pytest import mark, raises
+from pytest import mark, raises, fixture
 
 from xiao_asgi.connections import (
     Connection,
@@ -13,7 +13,7 @@ from xiao_asgi.connections import (
     make_connection,
 )
 from xiao_asgi.requests import Request
-from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
+from xiao_asgi.responses import BodyResponse
 
 
 @mark.asyncio
@@ -294,8 +294,14 @@ class TestHttpConnection:
 
 @mark.asyncio
 class TestWebSocketConnection:
+    @fixture
+    def websocket_connection(self):
+        return WebSocketConnection(
+            {"type": "websocket"}, AsyncMock(), AsyncMock()
+        )
+
     def test_create_instance(self):
-        scope = Mock()
+        scope = {"type": "websocket"}
         receive = AsyncMock()
         send = AsyncMock()
 
@@ -306,161 +312,161 @@ class TestWebSocketConnection:
         assert websocket_connection.scope is scope
         assert websocket_connection._receive is receive
         assert websocket_connection._send is send
-        assert (
-            websocket_connection.application_connection_state == "connecting"
+        assert websocket_connection.connection_state == "connecting"
+
+    async def test_accept_connection(self, websocket_connection):
+        await websocket_connection.accept_connection()
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.accept", "subprotocol": None, "headers": []}
         )
-        assert websocket_connection.client_connection_state == "connecting"
 
-    async def test_receive_request_with_disconnected_client(self):
-        websocket_connection = WebSocketConnection({}, AsyncMock, AsyncMock)
-        websocket_connection.client_connection_state = "disconnected"
-
-        with raises(
-            InvalidConnectionState,
-            match="Cannot receive a request from a disconnected client.",
-        ):
-            await websocket_connection.receive_request()
-
-    @mark.parametrize("type", ["accept", "receive", "disconnect"])
-    async def test_receive_invalid_connecting_request(self, type):
-        receive = AsyncMock(return_value={"type": "websocket." + type})
-        websocket_connection = WebSocketConnection({}, receive, AsyncMock)
-
-        with raises(
-            InvalidConnectionState,
-            match=f"Cannot receive a {type} request from a connecting client.",
-        ):
-            await websocket_connection.receive_request()
-
-    @mark.parametrize("type", ["connected", "accept"])
-    async def test_receive_invalid_connected_request(self, type):
-        receive = AsyncMock(return_value={"type": "websocket." + type})
-        websocket_connection = WebSocketConnection({}, receive, AsyncMock)
-        websocket_connection.client_connection_state = "connected"
-
-        with raises(
-            InvalidConnectionState,
-            match=f"Cannot receive a {type} request from a connected client.",
-        ):
-            await websocket_connection.receive_request()
-
-    async def test_receive_request_connect_type(self):
-        websocket_connection = WebSocketConnection(
-            {},
-            AsyncMock(return_value={"type": "websocket.connect"}),
-            AsyncMock(),
+    async def test_accept_connection_with_subprotocol(
+        self, websocket_connection
+    ):
+        await websocket_connection.accept_connection(
+            subprotocol="test-subprotocol"
         )
+
+        websocket_connection._send.assert_awaited_once_with(
+            {
+                "type": "websocket.accept",
+                "subprotocol": "test-subprotocol",
+                "headers": [],
+            }
+        )
+
+    @mark.parametrize(
+        "headers",
+        [
+            [
+                (b"content-type", b"text/plain"),
+                (b"user-agent", b"PostmanRuntime/7.26.8"),
+                (b"accept", b"*/*"),
+                (b"host", b"localhost:8000"),
+                (b"accept-encoding", b"gzip, deflate, br"),
+                (b"connection", b"keep-alive"),
+                (b"content-length", b"5"),
+            ],
+            (
+                [b"content-type", b"text/plain"],
+                [b"user-agent", b"PostmanRuntime/7.26.8"],
+                [b"accept", b"*/*"],
+                [b"host", b"localhost:8000"],
+                [b"accept-encoding", b"gzip, deflate, br"],
+                [b"connection", b"keep-alive"],
+                [b"content-length", b"5"],
+            ),
+            {
+                (b"content-type", b"text/plain"),
+                (b"user-agent", b"PostmanRuntime/7.26.8"),
+                (b"accept", b"*/*"),
+                (b"host", b"localhost:8000"),
+                (b"accept-encoding", b"gzip, deflate, br"),
+                (b"connection", b"keep-alive"),
+                (b"content-length", b"5"),
+            },
+            [],
+        ],
+    )
+    async def test_accept_connection_with_headers(
+        self, websocket_connection, headers
+    ):
+        await websocket_connection.accept_connection(headers=headers)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {
+                "type": "websocket.accept",
+                "subprotocol": None,
+                "headers": headers,
+            }
+        )
+
+    async def test_close_connection(self, websocket_connection):
+        await websocket_connection.close_connection()
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1000}
+        )
+
+    async def test_close_connection_with_code(self, websocket_connection):
+        await websocket_connection.close_connection(code=1011)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1011}
+        )
+
+    async def test_receive_request_with_connect_message_type(
+        self, websocket_connection
+    ):
+        websocket_connection._receive.return_value = {
+            "type": "websocket.connect"
+        }
 
         received_request = await websocket_connection.receive_request()
 
-        assert websocket_connection.client_connection_state == "connected"
+        assert websocket_connection.connection_state == "connected"
         assert isinstance(received_request, Request)
         assert received_request.protocol == "websocket"
         assert received_request.type == "connect"
         assert received_request.data == {}
 
-    async def test_receive_request_receive_type(self):
-        websocket_connection = WebSocketConnection(
-            {},
-            AsyncMock(
-                return_value={
-                    "type": "websocket.receive",
-                    "text": "Hello World!",
-                }
-            ),
-            AsyncMock(),
-        )
-        websocket_connection.client_connection_state = "connected"
+    async def test_receive_request_with_receive_message_type(
+        self, websocket_connection
+    ):
+        websocket_connection.connection_state = "connected"
+        websocket_connection._receive.return_value = {
+            "type": "websocket.receive",
+            "text": "Hello World!",
+        }
 
         received_request = await websocket_connection.receive_request()
 
+        assert websocket_connection.connection_state == "connected"
         assert isinstance(received_request, Request)
         assert received_request.protocol == "websocket"
         assert received_request.type == "receive"
         assert received_request.data == {"text": "Hello World!"}
 
-    async def test_receive_request_disconnect_type(self):
-        websocket_connection = WebSocketConnection(
-            {},
-            AsyncMock(return_value={"type": "websocket.disconnect"}),
-            AsyncMock(),
-        )
-        websocket_connection.client_connection_state = "connected"
+    async def test_receive_request_with_disconnect_message_type(
+        self, websocket_connection
+    ):
+        websocket_connection.connection_state = "connected"
+        websocket_connection._receive.return_value = {
+            "type": "websocket.disconnect"
+        }
 
         received_request = await websocket_connection.receive_request()
 
-        assert websocket_connection.client_connection_state == "disconnected"
+        assert websocket_connection.connection_state == "disconnected"
         assert isinstance(received_request, Request)
         assert received_request.protocol == "websocket"
         assert received_request.type == "disconnect"
         assert received_request.data == {}
 
-    async def test_send_response_with_disconnected_app(self):
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-        websocket_connection.application_connection_state = "disconnected"
+    async def test_receive_request_with_disconnected_connection(
+        self, websocket_connection
+    ):
+        websocket_connection.connection_state = "disconnected"
 
         with raises(
             InvalidConnectionState,
-            match="Cannot send a response when the application has disconnected.",
+            match="Cannot receive a request from a disconnected connection.",
         ):
-            await websocket_connection.send_response(Mock())
+            await websocket_connection.receive_request()
 
-        send.assert_not_awaited()
+    async def test_send_bytes(self, websocket_connection):
+        await websocket_connection.send_bytes(b"Hello, World!")
 
-    async def test_send_invalid_connecting_response(self):
-        def render_messages():
-            yield {"type": "websocket.send", "subprotocol": "", "headers": []}
-
-        response = AcceptResponse()
-        response.render_messages = render_messages
-
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-
-        with raises(
-            InvalidConnectionState,
-            match="Cannot send a send response when the application is connecting.",
-        ):
-            await websocket_connection.send_response(response)
-
-        send.assert_not_awaited()
-
-    async def test_send_invalid_connected_response(self):
-        def render_messages():
-            yield {
-                "type": "websocket.accept",
-                "subprotocol": "",
-                "headers": [],
-            }
-
-        response = AcceptResponse()
-        response.render_messages = render_messages
-
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-        websocket_connection.application_connection_state = "connected"
-
-        with raises(
-            InvalidConnectionState,
-            match="Cannot send a accept response when the application is connected.",
-        ):
-            await websocket_connection.send_response(response)
-
-        send.assert_not_awaited()
-
-    async def test_send_response_type_close(self):
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-
-        await websocket_connection.send_response(CloseResponse())
-
-        assert (
-            websocket_connection.application_connection_state == "disconnected"
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.send", "bytes": b"Hello, World!"}
         )
 
-        send.assert_awaited_once_with(
-            {"type": "websocket.close", "code": 1000}
+    async def test_send_text(self, websocket_connection):
+        await websocket_connection.send_text("Hello, World!")
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.send", "text": "Hello, World!"}
         )
 
 
