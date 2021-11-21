@@ -189,7 +189,6 @@ class TestHttpConnection:
         http_connection._send.assert_awaited_once_with(
             {"type": "http.response.start", "status": 200, "headers": []}
         )
-        assert http_connection.connection_status == "closing"
 
     @mark.parametrize(
         "status,headers",
@@ -245,26 +244,8 @@ class TestHttpConnection:
                 "headers": headers,
             }
         )
-        assert http_connection.connection_status == "closing"
-
-    @mark.parametrize("connection_status", ["closing", "closed"])
-    async def test_sending_start_response_with_invalid_connection_status(
-        self, http_connection, connection_status
-    ):
-        http_connection.connection_status = connection_status
-
-        with raises(
-            InvalidConnectionState,
-            match=(
-                "Cannot send start response as the response has already "
-                "been started."
-            ),
-        ):
-            await http_connection.send_start()
 
     async def test_sending_body_response_with_defaults(self, http_connection):
-        http_connection.connection_status = "closing"
-
         await http_connection.send_body()
 
         http_connection._send.assert_awaited_once_with(
@@ -283,7 +264,6 @@ class TestHttpConnection:
     async def test_sending_body_response(
         self, http_connection, body, more_body
     ):
-        http_connection.connection_status = "closing"
         await http_connection.send_body(body, more_body)
 
         http_connection._send.assert_awaited_once_with(
@@ -293,21 +273,6 @@ class TestHttpConnection:
                 "more_body": more_body,
             }
         )
-
-    @mark.parametrize("connection_status", ["open", "closed"])
-    async def test_sending_body_response_with_invalid_connection_state(
-        self, http_connection, connection_status
-    ):
-        http_connection.connection_status = connection_status
-
-        with raises(
-            InvalidConnectionState,
-            match=(
-                f"The connection_status must be closing not "
-                f"{connection_status}"
-            ),
-        ):
-            await http_connection.send_body()
 
 
 @mark.asyncio
@@ -325,12 +290,15 @@ class TestWebSocketConnection:
 
         websocket_connection = WebSocketConnection(scope, receive, send)
 
-        assert isinstance(websocket_connection, Connection)
+        assert isinstance(websocket_connection, HttpConnection)
         assert websocket_connection.protocol == "websocket"
         assert websocket_connection.scope is scope
         assert websocket_connection._receive is receive
         assert websocket_connection._send is send
         assert websocket_connection.connection_state == "connecting"
+
+    def test_method(self, websocket_connection):
+        assert websocket_connection.method is None
 
     async def test_accept_connection(self, websocket_connection):
         await websocket_connection.accept_connection()
@@ -485,6 +453,18 @@ class TestWebSocketConnection:
 
         websocket_connection._send.assert_awaited_once_with(
             {"type": "websocket.send", "text": "Hello, World!"}
+        )
+
+    async def test_send_start(self, websocket_connection):
+        await websocket_connection.send_start()
+
+        assert websocket_connection.protocol == "websocket.http"
+        websocket_connection._send.assert_awaited_once_with(
+            {
+                "type": "websocket.http.response.start",
+                "headers": [],
+                "status": 200,
+            }
         )
 
 

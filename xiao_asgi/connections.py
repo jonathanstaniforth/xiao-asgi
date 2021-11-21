@@ -157,12 +157,6 @@ class HttpConnection(Connection):
 
     protocol: str = "http"
 
-    def __init__(self, *args) -> None:
-        """Establish the response status of the connection."""
-        super().__init__(*args)
-
-        self.connection_status = "open"
-
     @property
     def method(self) -> str:
         """Return the method provided in the connection.
@@ -200,12 +194,6 @@ class HttpConnection(Connection):
                 will be sent after this message. A value of ``False`` will
                 result in the connection being closed. Defaults to False.
         """
-        if self.connection_status != "closing":
-            raise InvalidConnectionState(
-                f"The connection_status must be closing not "
-                f"{self.connection_status}"
-            )
-
         await self._send(
             {
                 "type": f"{self.protocol}.response.body",
@@ -213,9 +201,6 @@ class HttpConnection(Connection):
                 "more_body": more_body,
             }
         )
-
-        if not more_body:
-            self.connection_status = "closed"
 
     async def send_response(self, response: type[Response]) -> None:
         """Send a response to the client.
@@ -245,12 +230,6 @@ class HttpConnection(Connection):
             headers (Iterable[Iterable[bytes, bytes]], optional): headers for
                 the response. Defaults to [].
         """
-        if self.connection_status != "open":
-            raise InvalidConnectionState(
-                "Cannot send start response as the response has "
-                "already been started."
-            )
-
         await self._send(
             {
                 "type": f"{self.protocol}.response.start",
@@ -259,10 +238,8 @@ class HttpConnection(Connection):
             }
         )
 
-        self.connection_status = "closing"
 
-
-class WebSocketConnection(Connection):
+class WebSocketConnection(HttpConnection):
     """A WebSocket connection.
 
     This connection class is capable of receiving requests and sending
@@ -281,6 +258,15 @@ class WebSocketConnection(Connection):
         super().__init__(*args)
 
         self.connection_state = "connecting"
+
+    @property
+    def method(self) -> None:
+        """Return no method.
+
+        Returns:
+            None: WebSocket connections do not have a method.
+        """
+        return None
 
     async def accept_connection(
         self,
@@ -355,6 +341,17 @@ class WebSocketConnection(Connection):
                 "bytes": data,
             }
         )
+
+    async def send_start(self, *args, **kwargs) -> None:
+        """Send a HTTP start response.
+
+        Can be used to send a custom denial response using the WebSocket
+        Denial Response extension. The protocol of the connection will be
+        changed to websocket.http.
+        """
+        self.protocol = "websocket.http"
+
+        await super().send_start(*args, **kwargs)
 
     async def send_text(self, data: str) -> None:
         """Send a message containing string data to the client.
