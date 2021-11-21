@@ -6,7 +6,6 @@ receiving and send messages, along with exceptions for connection errors.
 Classes:
     ProtocolUnknown: an unknown protocol is being used.
     ProtocolMismatch: protocols between two objects do not match.
-    TypeMismatch: types between two object do not align.
     InvalidConnectionState: connection state of a client/application is not
         appropriate for the request/response.
     Connection: abstract base class from which connection classes can be built
@@ -22,8 +21,8 @@ Variables:
     protocols: list of known protocols and their associated connection class.
 """
 from abc import ABC, abstractmethod
-from collections.abc import Coroutine, Generator, Iterable
-from typing import Any, Optional
+from collections.abc import Coroutine, Iterable
+from typing import Optional
 
 from xiao_asgi.requests import Request
 from xiao_asgi.responses import Response
@@ -50,24 +49,6 @@ class ProtocolMismatch(Exception):
 
             >>> if request["type"].split(".")[0] != connection.protocol:
             >>>     raise ProtocolMismatch()
-    """
-
-
-class TypeMismatch(Exception):
-    """The types between two objects do not align.
-
-    Types do not need to match, however, they do need to be appropriate for
-    each other.
-
-    Example:
-        When this exception is raised::
-
-            >>> protocol, type = request["type"].split(".")
-            >>> if type != "request":
-            >>>     raise TypeMismatch((
-            >>>         f"Request type ({type}) does not match the expected "
-            >>>         f"type (request)."
-            >>>     ))
     """
 
 
@@ -113,7 +94,12 @@ class Connection(ABC):
             send (Coroutine): coroutine for sending responses.
         """
         if scope["type"] != self.protocol:
-            ValueError(f"The type of the connection must be {self.protocol}, not {scope['type']}.")
+            raise ValueError(
+                (
+                    f"The type of the connection must be {self.protocol}, not "
+                    f"{scope['type']}."
+                )
+            )
 
         self.scope = scope
         self._receive = receive
@@ -148,28 +134,6 @@ class Connection(ABC):
             "query_string": self.scope.get("query_string"),
         }
 
-    async def send(self, response: dict[str, Any]) -> None:
-        """Send a response to the client.
-
-        Args:
-            event (dict[str, Any]): the response to send.
-
-        Raises:
-            ProtocolMismatch: if the response's protocol does not match the
-                connection's protocol.
-        """
-        response_protocol = response["type"].split(".")[0]
-
-        if response_protocol != self.protocol:
-            raise ProtocolMismatch(
-                (
-                    f"Response protocol ({response_protocol}) does not match "
-                    f"this connection protocol ({self.protocol})."
-                )
-            )
-
-        await self._send(response)
-
     @abstractmethod
     async def receive_request(self) -> Request:
         """Receive a request from the client.
@@ -187,9 +151,17 @@ class HttpConnection(Connection):
 
     Attributes:
         protocol (str): name of the connection protocol, defaults to http.
+        connection_status (bool): the current status of the connection
+            response.
     """
 
     protocol: str = "http"
+
+    def __init__(self, *args) -> None:
+        """Establish the response status of the connection."""
+        super().__init__(*args)
+
+        self.connection_status = "open"
 
     @property
     def method(self) -> str:
@@ -200,77 +172,94 @@ class HttpConnection(Connection):
         """
         return self.scope["method"]
 
-    async def get_requests_body(self) -> Request:
-        """Return the requests' body.
-
-        The body is constructed from all the requests received from the client.
-
-        Returns:
-            Request: the constructed body.
-        """
-        body = b""
-
-        async for request in self.stream_requests():
-            body += request.data["body"]
-
-        return Request(
-            protocol=self.protocol,
-            type="request",
-            data={"body": body, "more_body": False},
-        )
-
     async def receive_request(self) -> Request:
         """Receive a request from the client.
-
-        Raises:
-            TypeMismatch: the request's type does not equal request.
 
         Returns:
             Request: the received request.
         """
-        request = await self.receive()
+        request = await self._receive()
         protocol, type = request["type"].split(".")
-
-        if type != "request":
-            raise TypeMismatch(
-                (
-                    f"Request type ({type}) does not match the expected type "
-                    f"(request)."
-                )
-            )
 
         del request["type"]
 
         return Request(protocol=protocol, type=type, data=request)
 
-    async def send_response(self, response: Response) -> None:
+    async def send_body(
+        self, data: bytes = b"", more_body: bool = False
+    ) -> None:
+        """Send a HTTP body response to the client.
+
+        A HTTP start response must be sent to the client before a body
+        response (``HttpConnection.send_start_response()``).
+
+        Args:
+            data (bytes, optional): the content of the response. Defaults to
+                bytes.
+            more_body (bool, optional): whether any additional body responses
+                will be sent after this message. A value of ``False`` will
+                result in the connection being closed. Defaults to False.
+        """
+        if self.connection_status != "closing":
+            raise InvalidConnectionState(
+                f"The connection_status must be closing not "
+                f"{self.connection_status}"
+            )
+
+        await self._send(
+            {
+                "type": f"{self.protocol}.response.body",
+                "body": data,
+                "more_body": more_body,
+            }
+        )
+
+        if not more_body:
+            self.connection_status = "closed"
+
+    async def send_response(self, response: type[Response]) -> None:
         """Send a response to the client.
 
         Args:
-            response (Response): the response to send.
+            response (type[Response]): the response to send.
         """
-        for message in response.render_messages():
-            await self.send(message)
+        rendered_response = response.render_response()
 
-    async def stream_requests(self) -> Generator[Request, None, None]:
-        """Stream the requests.
+        await self.send_start(
+            rendered_response["status"], rendered_response["headers"]
+        )
+        await self.send_body(
+            rendered_response["body"], rendered_response["more_body"]
+        )
 
-        The body of each request is yielded.
+    async def send_start(
+        self,
+        status_code: int = 200,
+        headers: Iterable[Iterable[bytes, bytes]] = [],
+    ) -> None:
+        """Send a HTTP start response to the client.
 
-        Raises:
-            RequestTypeMismatch: if a request's type does not match the type
-                receive.
-
-        Yields:
-            Generator[bytes, None, None]: the body of a request.
+        Args:
+            status_code (int, optional): a HTTP status code for the response.
+                Defaults to 200.
+            headers (Iterable[Iterable[bytes, bytes]], optional): headers for
+                the response. Defaults to [].
         """
-        while True:
-            request = await self.receive_request()
+        if self.connection_status != "open":
+            raise InvalidConnectionState(
+                "Cannot send start response as the response has "
+                "already been started."
+            )
 
-            yield request
+        await self._send(
+            {
+                "type": f"{self.protocol}.response.start",
+                "status": status_code,
+                "headers": headers,
+            }
+        )
 
-            if not request.data["more_body"]:
-                break
+        self.connection_status = "closing"
 
 
 class WebSocketConnection(Connection):
