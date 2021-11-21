@@ -39,7 +39,10 @@ class TestHttpRequest:
                     {
                         "type": "http.response.start",
                         "status": 405,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"18"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(

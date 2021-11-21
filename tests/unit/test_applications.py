@@ -53,7 +53,10 @@ class TestXiao:
                     {
                         "type": "http.response.start",
                         "status": 404,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"9"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
@@ -88,7 +91,10 @@ class TestXiao:
                     {
                         "type": "http.response.start",
                         "status": 405,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"18"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(

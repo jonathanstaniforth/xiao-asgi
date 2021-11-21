@@ -13,12 +13,12 @@ from xiao_asgi.routing import HttpRoute, Route, WebSocketRoute
 
 @fixture
 def http_connection():
-    return HttpConnection({}, AsyncMock(), AsyncMock())
+    return HttpConnection({"type": "http"}, AsyncMock(), AsyncMock())
 
 
 @fixture
 def websocket_connection():
-    return WebSocketConnection({}, AsyncMock(), AsyncMock())
+    return WebSocketConnection({"type": "websocket"}, AsyncMock(), AsyncMock())
 
 
 @mark.asyncio
@@ -106,7 +106,10 @@ class TestHttpRoute:
                     {
                         "type": "http.response.start",
                         "status": 500,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"21"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
@@ -128,7 +131,10 @@ class TestHttpRoute:
                     {
                         "type": "http.response.start",
                         "status": 501,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"15"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
@@ -150,7 +156,10 @@ class TestHttpRoute:
                     {
                         "type": "http.response.start",
                         "status": 405,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"18"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
@@ -183,7 +192,10 @@ class TestHttpRoute:
                     {
                         "type": "http.response.start",
                         "status": 501,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"15"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
@@ -209,7 +221,10 @@ class TestHttpRoute:
                     {
                         "type": "http.response.start",
                         "status": 500,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"21"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
