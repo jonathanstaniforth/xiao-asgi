@@ -1,19 +1,30 @@
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, call
 
-from pytest import mark, raises
+from pytest import fixture, mark, raises
 
 from xiao_asgi.connections import (
     Connection,
     HttpConnection,
     InvalidConnectionState,
-    ProtocolMismatch,
     ProtocolUnknown,
-    TypeMismatch,
     WebSocketConnection,
     make_connection,
 )
 from xiao_asgi.requests import Request
-from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
+from xiao_asgi.responses import PlainTextResponse
+
+
+@fixture
+def headers():
+    return [
+        (b"content-type", b"text/plain"),
+        (b"user-agent", b"PostmanRuntime/7.26.8"),
+        (b"accept", b"*/*"),
+        (b"host", b"localhost:8000"),
+        (b"accept-encoding", b"gzip, deflate, br"),
+        (b"connection", b"keep-alive"),
+        (b"content-length", b"5"),
+    ]
 
 
 @mark.asyncio
@@ -28,7 +39,7 @@ class TestConnection:
             pass
 
     def test_create_instance(self):
-        scope = Mock()
+        scope = {"type": "test"}
         receive = AsyncMock()
         send = AsyncMock()
 
@@ -38,25 +49,22 @@ class TestConnection:
         assert connection._receive is receive
         assert connection._send is send
 
+    def test_create_instance_with_different_protocol(self):
+        with raises(
+            ValueError,
+            match="The type of the connection must be test, not http.",
+        ):
+            self.MockConnection({"type": "http"}, AsyncMock(), AsyncMock())
+
     def test_empty_headers(self):
-        scope = {"headers": []}
+        scope = {"type": "test", "headers": []}
 
         connection = self.MockConnection(scope, AsyncMock(), AsyncMock())
 
         assert connection.headers == {}
 
-    def test_full_headers(self):
-        scope = {
-            "headers": [
-                (b"content-type", b"text/plain"),
-                (b"user-agent", b"PostmanRuntime/7.26.8"),
-                (b"accept", b"*/*"),
-                (b"host", b"localhost:8000"),
-                (b"accept-encoding", b"gzip, deflate, br"),
-                (b"connection", b"keep-alive"),
-                (b"content-length", b"5"),
-            ]
-        }
+    def test_full_headers(self, headers):
+        scope = {"type": "test", "headers": headers}
 
         connection = self.MockConnection(scope, AsyncMock(), AsyncMock())
 
@@ -72,6 +80,7 @@ class TestConnection:
 
     def test_url(self):
         scope = {
+            "type": "test",
             "scheme": "http",
             "server": ("127.0.0.1", 8000),
             "root_path": "",
@@ -89,70 +98,15 @@ class TestConnection:
             "query_string": b"chips=ahoy&vienna=finger",
         }
 
-    async def test_receive_with_same_protocol(self):
-        request = {"type": "test.request", "body": b"", "more_body": False}
-        receive = AsyncMock(return_value=request)
-
-        connection = self.MockConnection({}, receive, AsyncMock())
-
-        assert await connection.receive() == request
-        receive.assert_called_once()
-
-    async def test_receive_with_different_protocol(self):
-        receive = AsyncMock(
-            return_value={
-                "type": "invalid.request",
-                "body": b"",
-                "more_body": False,
-            }
-        )
-
-        connection = self.MockConnection({}, receive, AsyncMock())
-
-        with raises(
-            ProtocolMismatch,
-            match="Received request protocol \\(invalid\\) does not match this connection protocol \\(test\\).",
-        ):
-            await connection.receive()
-
-        receive.assert_awaited_once()
-
-    async def test_send_with_same_protocol(self):
-        response = {
-            "type": "test.response.start",
-            "status": 200,
-            "headers": [],
-        }
-        send = AsyncMock()
-
-        connection = self.MockConnection({}, AsyncMock(), send)
-        await connection.send(response)
-
-        send.assert_awaited_once_with(response)
-
-    async def test_send_with_different_protocol(self):
-        response = {
-            "type": "invalid.response.start",
-            "status": 200,
-            "headers": [],
-        }
-        send = AsyncMock()
-
-        connection = self.MockConnection({}, AsyncMock(), send)
-
-        with raises(
-            ProtocolMismatch,
-            match="Response protocol \\(invalid\\) does not match this connection protocol \\(test\\).",
-        ):
-            await connection.send(response)
-
-        send.assert_not_awaited()
-
 
 @mark.asyncio
 class TestHttpConnection:
-    def test_creating_instance(self):
-        scope = Mock()
+    @fixture
+    def http_connection(self):
+        return HttpConnection({"type": "http"}, AsyncMock(), AsyncMock())
+
+    def test_create_instance(self):
+        scope = {"type": "http"}
         receive = AsyncMock()
         send = AsyncMock()
 
@@ -180,39 +134,18 @@ class TestHttpConnection:
     )
     def test_method(self, method):
         http_connection = HttpConnection(
-            {"method": method}, AsyncMock(), AsyncMock()
+            {"type": "http", "method": method}, AsyncMock(), AsyncMock()
         )
 
         assert http_connection.method == method
-
-    async def test_get_requests_body(self):
-        request_1 = {
-            "type": "http.request",
-            "body": b"Hello ",
-            "more_body": True,
-        }
-        request_2 = {
-            "type": "http.request",
-            "body": b"World!",
-            "more_body": False,
-        }
-        receive = AsyncMock(side_effect=[request_1, request_2])
-
-        http_connection = HttpConnection({}, receive, AsyncMock())
-        received_request = await http_connection.get_requests_body()
-
-        assert received_request == Request(
-            protocol="http",
-            type="request",
-            data={"body": b"Hello World!", "more_body": False},
-        )
-        receive.assert_has_awaits == [call(), call()]
 
     async def test_receive_request_with_required_type(self):
         request = {"type": "http.request", "body": b"", "more_body": False}
         receive = AsyncMock(return_value=request)
 
-        http_connection = HttpConnection({}, receive, AsyncMock())
+        http_connection = HttpConnection(
+            {"type": "http"}, receive, AsyncMock()
+        )
         received_request = await http_connection.receive_request()
 
         assert isinstance(received_request, Request)
@@ -221,23 +154,11 @@ class TestHttpConnection:
         assert received_request.data == {"body": b"", "more_body": False}
         receive.assert_awaited_once()
 
-    async def test_receive_request_without_required_type(self):
-        request = {"type": "http.invalid", "body": b"", "more_body": False}
-        receive = AsyncMock(return_value=request)
-
-        http_connection = HttpConnection({}, receive, AsyncMock())
-
-        with raises(
-            TypeMismatch,
-            match="Request type \\(invalid\\) does not match the expected type \\(request\\).",
-        ):
-            await http_connection.receive_request()
-
     async def test_send_response(self):
         send = AsyncMock()
-        response = BodyResponse()
+        response = PlainTextResponse()
 
-        http_connection = HttpConnection({}, AsyncMock(), send)
+        http_connection = HttpConnection({"type": "http"}, AsyncMock(), send)
         await http_connection.send_response(response)
 
         send.assert_has_awaits(
@@ -246,7 +167,10 @@ class TestHttpConnection:
                     {
                         "type": "http.response.start",
                         "status": 200,
-                        "headers": [],
+                        "headers": [
+                            (b"content-length", b"0"),
+                            (b"content-type", b"text/plain; charset=utf-8"),
+                        ],
                     }
                 ),
                 call(
@@ -259,43 +183,143 @@ class TestHttpConnection:
             ]
         )
 
-    async def test_stream_requests(self):
-        request_1 = {
-            "type": "http.request",
-            "body": b"First request",
-            "more_body": True,
-        }
-        request_2 = {
-            "type": "http.request",
-            "body": b"Second request",
-            "more_body": False,
-        }
-        receive = AsyncMock(side_effect=[request_1, request_2])
+    async def test_sending_start_response_with_defaults(self, http_connection):
+        await http_connection.send_start()
 
-        http_connection = HttpConnection({}, receive, AsyncMock())
-
-        received_requests = []
-
-        async for received_request in http_connection.stream_requests():
-            received_requests.append(received_request)
-
-        assert received_requests[0] == Request(
-            protocol="http",
-            type="request",
-            data={"body": b"First request", "more_body": True},
+        http_connection._send.assert_awaited_once_with(
+            {"type": "http.response.start", "status": 200, "headers": []}
         )
-        assert received_requests[1] == Request(
-            protocol="http",
-            type="request",
-            data={"body": b"Second request", "more_body": False},
+        assert http_connection.connection_status == "closing"
+
+    @mark.parametrize(
+        "status,headers",
+        [
+            (
+                200,
+                [
+                    (b"content-type", b"text/plain"),
+                    (b"user-agent", b"PostmanRuntime/7.26.8"),
+                    (b"accept", b"*/*"),
+                    (b"host", b"localhost:8000"),
+                    (b"accept-encoding", b"gzip, deflate, br"),
+                    (b"connection", b"keep-alive"),
+                    (b"content-length", b"5"),
+                ],
+            ),
+            (
+                401,
+                (
+                    [b"content-type", b"text/plain"],
+                    [b"user-agent", b"PostmanRuntime/7.26.8"],
+                    [b"accept", b"*/*"],
+                    [b"host", b"localhost:8000"],
+                    [b"accept-encoding", b"gzip, deflate, br"],
+                    [b"connection", b"keep-alive"],
+                    [b"content-length", b"5"],
+                ),
+            ),
+            (
+                403,
+                {
+                    (b"content-type", b"text/plain"),
+                    (b"user-agent", b"PostmanRuntime/7.26.8"),
+                    (b"accept", b"*/*"),
+                    (b"host", b"localhost:8000"),
+                    (b"accept-encoding", b"gzip, deflate, br"),
+                    (b"connection", b"keep-alive"),
+                    (b"content-length", b"5"),
+                },
+            ),
+            (404, []),
+        ],
+    )
+    async def test_sending_start_response(
+        self, http_connection, status, headers
+    ):
+        await http_connection.send_start(status, headers)
+
+        http_connection._send.assert_awaited_once_with(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": headers,
+            }
         )
-        receive.assert_has_awaits == [call(), call()]
+        assert http_connection.connection_status == "closing"
+
+    @mark.parametrize("connection_status", ["closing", "closed"])
+    async def test_sending_start_response_with_invalid_connection_status(
+        self, http_connection, connection_status
+    ):
+        http_connection.connection_status = connection_status
+
+        with raises(
+            InvalidConnectionState,
+            match=(
+                "Cannot send start response as the response has already "
+                "been started."
+            ),
+        ):
+            await http_connection.send_start()
+
+    async def test_sending_body_response_with_defaults(self, http_connection):
+        http_connection.connection_status = "closing"
+
+        await http_connection.send_body()
+
+        http_connection._send.assert_awaited_once_with(
+            {"type": "http.response.body", "body": b"", "more_body": False}
+        )
+
+    @mark.parametrize(
+        "body,more_body",
+        [
+            (b"", False),
+            (b"", True),
+            (b"Hello, World!", False),
+            (b"Hello, World!", True),
+        ],
+    )
+    async def test_sending_body_response(
+        self, http_connection, body, more_body
+    ):
+        http_connection.connection_status = "closing"
+        await http_connection.send_body(body, more_body)
+
+        http_connection._send.assert_awaited_once_with(
+            {
+                "type": "http.response.body",
+                "body": body,
+                "more_body": more_body,
+            }
+        )
+
+    @mark.parametrize("connection_status", ["open", "closed"])
+    async def test_sending_body_response_with_invalid_connection_state(
+        self, http_connection, connection_status
+    ):
+        http_connection.connection_status = connection_status
+
+        with raises(
+            InvalidConnectionState,
+            match=(
+                f"The connection_status must be closing not "
+                f"{connection_status}"
+            ),
+        ):
+            await http_connection.send_body()
 
 
 @mark.asyncio
 class TestWebSocketConnection:
+    @fixture
+    def websocket_connection(self):
+        return WebSocketConnection(
+            {"type": "websocket"}, AsyncMock(), AsyncMock()
+        )
+
     def test_create_instance(self):
-        scope = Mock()
+        scope = {"type": "websocket"}
         receive = AsyncMock()
         send = AsyncMock()
 
@@ -306,161 +330,161 @@ class TestWebSocketConnection:
         assert websocket_connection.scope is scope
         assert websocket_connection._receive is receive
         assert websocket_connection._send is send
-        assert (
-            websocket_connection.application_connection_state == "connecting"
+        assert websocket_connection.connection_state == "connecting"
+
+    async def test_accept_connection(self, websocket_connection):
+        await websocket_connection.accept_connection()
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.accept", "subprotocol": None, "headers": []}
         )
-        assert websocket_connection.client_connection_state == "connecting"
 
-    async def test_receive_request_with_disconnected_client(self):
-        websocket_connection = WebSocketConnection({}, AsyncMock, AsyncMock)
-        websocket_connection.client_connection_state = "disconnected"
-
-        with raises(
-            InvalidConnectionState,
-            match="Cannot receive a request from a disconnected client.",
-        ):
-            await websocket_connection.receive_request()
-
-    @mark.parametrize("type", ["accept", "receive", "disconnect"])
-    async def test_receive_invalid_connecting_request(self, type):
-        receive = AsyncMock(return_value={"type": "websocket." + type})
-        websocket_connection = WebSocketConnection({}, receive, AsyncMock)
-
-        with raises(
-            InvalidConnectionState,
-            match=f"Cannot receive a {type} request from a connecting client.",
-        ):
-            await websocket_connection.receive_request()
-
-    @mark.parametrize("type", ["connected", "accept"])
-    async def test_receive_invalid_connected_request(self, type):
-        receive = AsyncMock(return_value={"type": "websocket." + type})
-        websocket_connection = WebSocketConnection({}, receive, AsyncMock)
-        websocket_connection.client_connection_state = "connected"
-
-        with raises(
-            InvalidConnectionState,
-            match=f"Cannot receive a {type} request from a connected client.",
-        ):
-            await websocket_connection.receive_request()
-
-    async def test_receive_request_connect_type(self):
-        websocket_connection = WebSocketConnection(
-            {},
-            AsyncMock(return_value={"type": "websocket.connect"}),
-            AsyncMock(),
+    async def test_accept_connection_with_subprotocol(
+        self, websocket_connection
+    ):
+        await websocket_connection.accept_connection(
+            subprotocol="test-subprotocol"
         )
+
+        websocket_connection._send.assert_awaited_once_with(
+            {
+                "type": "websocket.accept",
+                "subprotocol": "test-subprotocol",
+                "headers": [],
+            }
+        )
+
+    @mark.parametrize(
+        "headers",
+        [
+            [
+                (b"content-type", b"text/plain"),
+                (b"user-agent", b"PostmanRuntime/7.26.8"),
+                (b"accept", b"*/*"),
+                (b"host", b"localhost:8000"),
+                (b"accept-encoding", b"gzip, deflate, br"),
+                (b"connection", b"keep-alive"),
+                (b"content-length", b"5"),
+            ],
+            (
+                [b"content-type", b"text/plain"],
+                [b"user-agent", b"PostmanRuntime/7.26.8"],
+                [b"accept", b"*/*"],
+                [b"host", b"localhost:8000"],
+                [b"accept-encoding", b"gzip, deflate, br"],
+                [b"connection", b"keep-alive"],
+                [b"content-length", b"5"],
+            ),
+            {
+                (b"content-type", b"text/plain"),
+                (b"user-agent", b"PostmanRuntime/7.26.8"),
+                (b"accept", b"*/*"),
+                (b"host", b"localhost:8000"),
+                (b"accept-encoding", b"gzip, deflate, br"),
+                (b"connection", b"keep-alive"),
+                (b"content-length", b"5"),
+            },
+            [],
+        ],
+    )
+    async def test_accept_connection_with_headers(
+        self, websocket_connection, headers
+    ):
+        await websocket_connection.accept_connection(headers=headers)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {
+                "type": "websocket.accept",
+                "subprotocol": None,
+                "headers": headers,
+            }
+        )
+
+    async def test_close_connection(self, websocket_connection):
+        await websocket_connection.close_connection()
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1000}
+        )
+
+    async def test_close_connection_with_code(self, websocket_connection):
+        await websocket_connection.close_connection(code=1011)
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.close", "code": 1011}
+        )
+
+    async def test_receive_request_with_connect_message_type(
+        self, websocket_connection
+    ):
+        websocket_connection._receive.return_value = {
+            "type": "websocket.connect"
+        }
 
         received_request = await websocket_connection.receive_request()
 
-        assert websocket_connection.client_connection_state == "connected"
+        assert websocket_connection.connection_state == "connected"
         assert isinstance(received_request, Request)
         assert received_request.protocol == "websocket"
         assert received_request.type == "connect"
         assert received_request.data == {}
 
-    async def test_receive_request_receive_type(self):
-        websocket_connection = WebSocketConnection(
-            {},
-            AsyncMock(
-                return_value={
-                    "type": "websocket.receive",
-                    "text": "Hello World!",
-                }
-            ),
-            AsyncMock(),
-        )
-        websocket_connection.client_connection_state = "connected"
+    async def test_receive_request_with_receive_message_type(
+        self, websocket_connection
+    ):
+        websocket_connection.connection_state = "connected"
+        websocket_connection._receive.return_value = {
+            "type": "websocket.receive",
+            "text": "Hello World!",
+        }
 
         received_request = await websocket_connection.receive_request()
 
+        assert websocket_connection.connection_state == "connected"
         assert isinstance(received_request, Request)
         assert received_request.protocol == "websocket"
         assert received_request.type == "receive"
         assert received_request.data == {"text": "Hello World!"}
 
-    async def test_receive_request_disconnect_type(self):
-        websocket_connection = WebSocketConnection(
-            {},
-            AsyncMock(return_value={"type": "websocket.disconnect"}),
-            AsyncMock(),
-        )
-        websocket_connection.client_connection_state = "connected"
+    async def test_receive_request_with_disconnect_message_type(
+        self, websocket_connection
+    ):
+        websocket_connection.connection_state = "connected"
+        websocket_connection._receive.return_value = {
+            "type": "websocket.disconnect"
+        }
 
         received_request = await websocket_connection.receive_request()
 
-        assert websocket_connection.client_connection_state == "disconnected"
+        assert websocket_connection.connection_state == "disconnected"
         assert isinstance(received_request, Request)
         assert received_request.protocol == "websocket"
         assert received_request.type == "disconnect"
         assert received_request.data == {}
 
-    async def test_send_response_with_disconnected_app(self):
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-        websocket_connection.application_connection_state = "disconnected"
+    async def test_receive_request_with_disconnected_connection(
+        self, websocket_connection
+    ):
+        websocket_connection.connection_state = "disconnected"
 
         with raises(
             InvalidConnectionState,
-            match="Cannot send a response when the application has disconnected.",
+            match="Cannot receive a request from a disconnected connection.",
         ):
-            await websocket_connection.send_response(Mock())
+            await websocket_connection.receive_request()
 
-        send.assert_not_awaited()
+    async def test_send_bytes(self, websocket_connection):
+        await websocket_connection.send_bytes(b"Hello, World!")
 
-    async def test_send_invalid_connecting_response(self):
-        def render_messages():
-            yield {"type": "websocket.send", "subprotocol": "", "headers": []}
-
-        response = AcceptResponse()
-        response.render_messages = render_messages
-
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-
-        with raises(
-            InvalidConnectionState,
-            match="Cannot send a send response when the application is connecting.",
-        ):
-            await websocket_connection.send_response(response)
-
-        send.assert_not_awaited()
-
-    async def test_send_invalid_connected_response(self):
-        def render_messages():
-            yield {
-                "type": "websocket.accept",
-                "subprotocol": "",
-                "headers": [],
-            }
-
-        response = AcceptResponse()
-        response.render_messages = render_messages
-
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-        websocket_connection.application_connection_state = "connected"
-
-        with raises(
-            InvalidConnectionState,
-            match="Cannot send a accept response when the application is connected.",
-        ):
-            await websocket_connection.send_response(response)
-
-        send.assert_not_awaited()
-
-    async def test_send_response_type_close(self):
-        send = AsyncMock()
-        websocket_connection = WebSocketConnection({}, AsyncMock(), send)
-
-        await websocket_connection.send_response(CloseResponse())
-
-        assert (
-            websocket_connection.application_connection_state == "disconnected"
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.send", "bytes": b"Hello, World!"}
         )
 
-        send.assert_awaited_once_with(
-            {"type": "websocket.close", "code": 1000}
+    async def test_send_text(self, websocket_connection):
+        await websocket_connection.send_text("Hello, World!")
+
+        websocket_connection._send.assert_awaited_once_with(
+            {"type": "websocket.send", "text": "Hello, World!"}
         )
 
 

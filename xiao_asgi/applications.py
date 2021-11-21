@@ -7,7 +7,7 @@ from collections.abc import Coroutine
 from logging import getLogger
 
 from xiao_asgi.connections import make_connection
-from xiao_asgi.responses import BodyResponse
+from xiao_asgi.responses import PlainTextResponse
 from xiao_asgi.routing import Route
 
 
@@ -71,10 +71,6 @@ class Xiao:
                 finally:
                     return
 
-        # Manually send a HTTP 404 response as it may be responding to a
-        # WebSocket connection which would result in a ProtocolMismatch
-        # exception if the Connection instance is used.
-        not_found_response = BodyResponse(status=404, body=b"Not Found")
-
-        for message in not_found_response.render_messages():
-            await send(message)
+        await connection.send_response(
+            PlainTextResponse(status=404, body=b"Not Found")
+        )

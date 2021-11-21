@@ -18,7 +18,7 @@ from xiao_asgi.connections import (
     WebSocketConnection,
 )
 from xiao_asgi.requests import Request
-from xiao_asgi.responses import AcceptResponse, BodyResponse, CloseResponse
+from xiao_asgi.responses import PlainTextResponse
 
 
 class Route(ABC):
@@ -234,7 +234,7 @@ class HttpRoute(Route):
                 to.
         """
         await connection.send_response(
-            BodyResponse(status=500, body=b"Internal Server Error")
+            PlainTextResponse(status=500, body=b"Internal Server Error")
         )
 
     async def send_not_implemented(self, connection: HttpConnection) -> None:
@@ -247,7 +247,7 @@ class HttpRoute(Route):
                 to.
         """
         await connection.send_response(
-            BodyResponse(status=501, body=b"Not Implemented")
+            PlainTextResponse(status=501, body=b"Not Implemented")
         )
 
     async def send_method_not_allowed(
@@ -262,7 +262,7 @@ class HttpRoute(Route):
                 to.
         """
         await connection.send_response(
-            BodyResponse(status=405, body=b"Method Not Allowed")
+            PlainTextResponse(status=405, body=b"Method Not Allowed")
         )
 
     async def __call__(self, connection: HttpConnection) -> None:
@@ -330,7 +330,7 @@ class WebSocketRoute(Route):
                 with the connection information.
             request (Request): the received request.
         """
-        await connection.send_response(AcceptResponse())
+        await connection.accept_connection()
 
     async def receive(
         self, connection: WebSocketConnection, request: Request
@@ -369,7 +369,7 @@ class WebSocketRoute(Route):
             connection (WebSocketConnection): the connection to send the
                 reponse.
         """
-        await connection.send_response(CloseResponse(code=1011))
+        await connection.close_connection(code=1011)
 
     async def __call__(self, connection: WebSocketConnection) -> None:
         """Pass the connection to the appropriate endpoint.
