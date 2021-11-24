@@ -274,6 +274,26 @@ class TestHttpConnection:
             }
         )
 
+    async def test_sending_push_response(self, http_connection):
+        await http_connection.send_push("test/path")
+
+        http_connection._send.assert_awaited_once_with(
+            {"type": "http.response.push", "path": "test/path", "headers": []}
+        )
+
+    async def test_sending_push_response_with_headers(
+        self, http_connection, headers
+    ):
+        await http_connection.send_push("test/path", headers=headers)
+
+        http_connection._send.assert_awaited_once_with(
+            {
+                "type": "http.response.push",
+                "path": "test/path",
+                "headers": headers,
+            }
+        )
+
 
 @mark.asyncio
 class TestWebSocketConnection:
