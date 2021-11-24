@@ -202,6 +202,24 @@ class HttpConnection(Connection):
             }
         )
 
+    async def send_push(
+        self, path: str, headers: Iterable[Iterable[bytes, bytes]] = []
+    ) -> None:
+        """Send a HTTP push response to the client.
+
+        Args:
+            path (str): the path to the resource to push.
+            headers (Iterable[Iterable[bytes, bytes]], optional): the headers
+                of the response. Defaults to [].
+        """
+        await self._send(
+            {
+                "type": f"{self.protocol}.response.push",
+                "path": path,
+                "headers": headers,
+            }
+        )
+
     async def send_response(self, response: type[Response]) -> None:
         """Send a response to the client.
 
