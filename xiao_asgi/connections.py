@@ -22,7 +22,7 @@ Variables:
 """
 from abc import ABC, abstractmethod
 from collections.abc import Coroutine, Iterable
-from typing import Optional
+from typing import IO, AnyStr, Optional
 
 from xiao_asgi.requests import Request
 from xiao_asgi.responses import Response
@@ -255,6 +255,39 @@ class HttpConnection(Connection):
                 "headers": headers,
             }
         )
+
+    async def send_zero_copy(
+        self,
+        file: IO[AnyStr],
+        offset: Optional[int] = None,
+        count: Optional[int] = None,
+        more_body: bool = False,
+    ) -> None:
+        """Send a HTTP zero copy send response to the client.
+
+        Args:
+            file (IO[AnyStr]): the file object to send.
+            offset (Optional[int], optional): position to start reading data.
+                Defaults to None.
+            count (Optional[int], optional): number of bytes to copy. Defaults
+                to None.
+            more_body (bool, optional): whether any additional body responses
+                will be sent after this message. A value of ``False`` will
+                result in the connection being closed. Defaults to False.
+        """
+        response = {
+            "type": f"{self.protocol}.response.zerocopysend",
+            "file": file,
+            "more_body": more_body,
+        }
+
+        if offset is not None:
+            response["offset"] = offset
+
+        if count is not None:
+            response["count"] = count
+
+        await self._send(response)
 
 
 class WebSocketConnection(HttpConnection):

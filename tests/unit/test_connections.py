@@ -105,6 +105,12 @@ class TestHttpConnection:
     def http_connection(self):
         return HttpConnection({"type": "http"}, AsyncMock(), AsyncMock())
 
+    @fixture
+    def temporary_file(self, tmp_path):
+        file = tmp_path / "test.txt"
+        file.touch()
+        return file
+
     def test_create_instance(self):
         scope = {"type": "http"}
         receive = AsyncMock()
@@ -293,6 +299,62 @@ class TestHttpConnection:
                 "headers": headers,
             }
         )
+
+    async def test_sending_zero_copy(self, http_connection, temporary_file):
+        with open(temporary_file) as test_file:
+            await http_connection.send_zero_copy(test_file)
+
+            http_connection._send.assert_awaited_once_with(
+                {
+                    "type": "http.response.zerocopysend",
+                    "file": test_file,
+                    "more_body": False,
+                }
+            )
+
+    async def test_sending_zero_copy_with_offset(
+        self, http_connection, temporary_file
+    ):
+        with open(temporary_file) as test_file:
+            await http_connection.send_zero_copy(test_file, offset=1)
+
+            http_connection._send.assert_awaited_once_with(
+                {
+                    "type": "http.response.zerocopysend",
+                    "file": test_file,
+                    "offset": 1,
+                    "more_body": False,
+                }
+            )
+
+    async def test_sending_zero_copy_with_count(
+        self, http_connection, temporary_file
+    ):
+        with open(temporary_file) as test_file:
+            await http_connection.send_zero_copy(test_file, count=1)
+
+            http_connection._send.assert_awaited_once_with(
+                {
+                    "type": "http.response.zerocopysend",
+                    "file": test_file,
+                    "count": 1,
+                    "more_body": False,
+                }
+            )
+
+    async def test_sending_zero_copy_with_more_body(
+        self, http_connection, temporary_file
+    ):
+        with open(temporary_file) as test_file:
+            await http_connection.send_zero_copy(test_file, more_body=True)
+
+            http_connection._send.assert_awaited_once_with(
+                {
+                    "type": "http.response.zerocopysend",
+                    "file": test_file,
+                    "more_body": True,
+                }
+            )
 
 
 @mark.asyncio
