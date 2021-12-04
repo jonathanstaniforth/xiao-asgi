@@ -32,6 +32,19 @@ class TestRoute:
 
         assert isinstance(route, Route)
         assert route.path == "/test"
+        assert route.path_regex.pattern == "^/test$"
+
+    def test_compile_path(self):
+        compiled_path = Route.compile_path(
+            "/post/{year}/{month}/{day}/{title}"
+        )
+
+        assert compiled_path.pattern == (
+            "^/post/(?P<year>[^/]+)/(?P<month>[^/]+)/"
+            "(?P<day>[^/]+)/(?P<title>[^/]+)$"
+        )
+        assert compiled_path.fullmatch("/post/2021/12/04/test-post")
+        assert compiled_path.fullmatch("/post/2021/12/04/") is None
 
     async def test_get_endpoint_with_valid_endpoint(self, route):
         get_endpoint = Mock()

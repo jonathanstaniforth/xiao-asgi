@@ -1,10 +1,10 @@
 from logging import Logger
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, MagicMock, Mock, call
 
 from pytest import fixture, mark
 
 from xiao_asgi.applications import Xiao
-from xiao_asgi.routing import HttpRoute
+from xiao_asgi.routing import HttpRoute, Route
 
 
 @mark.asyncio
@@ -73,6 +73,7 @@ class TestXiao:
         app.logger = Mock()
         app._routes[0] = AsyncMock(side_effect=Exception())
         app._routes[0].path = "/"
+        app._routes[0].path_regex = Route.compile_path("/")
 
         await app(scope, AsyncMock(), AsyncMock())
 
@@ -106,3 +107,14 @@ class TestXiao:
                 ),
             ]
         )
+
+    async def test_path_parameters_passed_to_route(self, app, scope):
+        scope["path"] = "/post/1"
+        route = MagicMock()
+        route.path_regex = Route.compile_path("/post/{id}")
+
+        app._routes = [route]
+
+        await app(scope, AsyncMock(), AsyncMock())
+
+        app._routes[0].call_args.args[0].path_parameters == {"id": "1"}

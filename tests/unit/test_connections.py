@@ -45,6 +45,7 @@ class TestConnection:
 
         connection = self.MockConnection(scope, receive, send)
 
+        assert connection.path_parameters is None
         assert connection.scope is scope
         assert connection._receive is receive
         assert connection._send is send

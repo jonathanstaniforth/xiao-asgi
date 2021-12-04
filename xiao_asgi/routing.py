@@ -8,6 +8,7 @@ Classes:
     HttpRoute: a HTTP route and endpoints.
     WebSocketRoute: a WebSocket route.
 """
+import re
 from abc import ABC
 from collections.abc import Callable, Coroutine
 
@@ -20,6 +21,8 @@ from xiao_asgi.connections import (
 from xiao_asgi.requests import Request
 from xiao_asgi.responses import PlainTextResponse
 
+route_regex = re.compile("{([a-zA-Z_][a-zA-Z0-9_]*)?}")
+
 
 class Route(ABC):
     """A base class for routes.
@@ -28,6 +31,7 @@ class Route(ABC):
 
     Attributes:
         path (str): the path for this route.
+        path_regex (re.Pattern): the regex object version of path.
         protocol (str): the protocol for this route.
     """
 
@@ -45,6 +49,37 @@ class Route(ABC):
                 >>> route = Route("/about")
         """
         self.path = path
+        self.path_regex: re.Pattern = self.compile_path(path)
+
+    @staticmethod
+    def compile_path(path: str) -> re.Pattern:
+        """Create a regex object for a path.
+
+        Args:
+            path (str): the path to create a regex object from.
+
+        Returns:
+            re.Pattern: the created regex object.
+
+        Example:
+            Creating a regex object::
+
+                >>> compiled_path = Route.compile_path("/post/{id}")
+        """
+        index = 0
+        path_regex = "^"
+
+        for match in route_regex.finditer(path):
+            param_name = match.groups()[0]
+
+            path_regex += re.escape(path[index : match.start()])
+            path_regex += f"(?P<{param_name}>[^/]+)"
+
+            index = match.end()
+
+        path_regex += re.escape(path[index:].split(":")[0]) + "$"
+
+        return re.compile(path_regex)
 
     async def get_endpoint(
         self, endpoint: str
