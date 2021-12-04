@@ -63,7 +63,9 @@ class Xiao:
         connection = make_connection(scope, receive, send)
 
         for route in self._routes:
-            if connection.url["path"] == route.path:
+            if match := route.path_regex.match(scope["path"]):
+                connection.path_parameters = match.groupdict()
+
                 try:
                     await route(connection)
                 except Exception as exception:

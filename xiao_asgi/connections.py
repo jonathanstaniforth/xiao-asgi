@@ -72,6 +72,7 @@ class Connection(ABC):
     Can be extended for a specific protocol.
 
     Attributes:
+        path_parameters (Optional[dict[str, str]]): parameters in the url path.
         protocol (str): name of the connection protocol.
         scope (dict[str, Any]): the connection information.
         _receive (Coroutine): coroutine for receiving requests.
@@ -101,6 +102,7 @@ class Connection(ABC):
                 )
             )
 
+        self.path_parameters: Optional[dict[str, str]] = None
         self.scope = scope
         self._receive = receive
         self._send = send
